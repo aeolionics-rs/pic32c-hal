@@ -44,6 +44,9 @@ jobs:
           - chip: pic32cm6408pl10048
             target: thumbv6m-none-eabi
             features: time-driver
+          - chip: pic32cm5112sg00100
+            target: thumbv8m.base-none-eabi
+            features: can-hal,time-driver
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
@@ -71,6 +74,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
       - run: cargo clippy --release -p pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
+
+  sg00-board:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo clippy --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi --examples -- -D warnings
 
   checks:
     runs-on: ubuntu-latest

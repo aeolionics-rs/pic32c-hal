@@ -14,3 +14,7 @@ vcell = "0.1.3"
 
 [features]
 rt = ["cortex-m-rt/device"]
+
+# Generated code: Microchip's SVD leaves some descriptions empty.
+[lints.clippy]
+empty_docs = "allow"
