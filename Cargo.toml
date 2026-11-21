@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-pl10-curiosity-nano", "pac/pic32ck-gc01-pac", "pac/pic32ck-sg01-pac", "pac/pic32cm-pl10-pac", "pic32c-hal"]
+members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-pl10-curiosity-nano", "examples/pic32cm-sg00-curiosity-pro","pac/pic32ck-gc01-pac", "pac/pic32ck-sg01-pac", "pac/pic32cm-pl10-pac", "pac/pic32cm-sg00-pac", "pic32c-hal"]
 
 [workspace.package]
 version = "0.1.0"

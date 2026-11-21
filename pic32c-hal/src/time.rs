@@ -12,6 +12,7 @@
 //! | `time-driver-tcc4` to `-tcc7` | PIC32CK | TCC4 to TCC7, 16 bits |
 //! | `time-driver-tc0-tc1` (`time-driver`'s choice) | PIC32CM PL10 | TC0 and TC1 paired, 32 bits |
 //! | `time-driver-tc0`, `-tc1`, `-tc2` | PIC32CM PL10 | one TC, 16 bits |
+//! | `time-driver-tcc0` (`time-driver`'s choice) to `-tcc6` | PIC32CM SG00 | TCC0 to TCC6, 16 bits |
 //!
 //! The PIC32CK has no basic TC, and the PL10's TCC0 is only 16 bits. The
 //! counter the driver takes is missing from the
@@ -48,10 +49,13 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 
-#[cfg(pic32ck)]
+#[cfg(any(pic32ck, pic32cm_sg))]
 mod hw {
     //! A TCC on the PIC32CK (DS60001795 chapter 48): TCC0 to TCC3 count 32
-    //! bits, TCC4 to TCC7 16. Their registers are laid out alike.
+    //! bits, TCC4 to TCC7 16. Their registers are laid out alike. The
+    //! PIC32CM SG00's seven TCCs are the same IP, all 16-bit with two
+    //! compare channels; their overflow vector is `TCCn_DFS`, not
+    //! `TCCn_OTHER`.
     use core::ptr::{read_volatile, write_volatile};
 
     use critical_section::CriticalSection;
@@ -99,22 +103,38 @@ mod hw {
         };
     }
 
-    #[cfg(time_driver = "tcc0")]
+    #[cfg(all(pic32ck, time_driver = "tcc0"))]
     timer!(0x4481_8000, 23, 32, TCC0_OTHER, TCC0_MC0, TCC0_MC1);
-    #[cfg(time_driver = "tcc1")]
+    #[cfg(all(pic32ck, time_driver = "tcc1"))]
     timer!(0x4481_A000, 23, 32, TCC1_OTHER, TCC1_MC0, TCC1_MC1);
-    #[cfg(time_driver = "tcc2")]
+    #[cfg(all(pic32ck, time_driver = "tcc2"))]
     timer!(0x4481_C000, 24, 32, TCC2_OTHER, TCC2_MC0, TCC2_MC1);
-    #[cfg(time_driver = "tcc3")]
+    #[cfg(all(pic32ck, time_driver = "tcc3"))]
     timer!(0x4481_E000, 24, 32, TCC3_OTHER, TCC3_MC0, TCC3_MC1);
-    #[cfg(time_driver = "tcc4")]
+    #[cfg(all(pic32ck, time_driver = "tcc4"))]
     timer!(0x4500_8000, 29, 16, TCC4_OTHER, TCC4_MC0, TCC4_MC1);
-    #[cfg(time_driver = "tcc5")]
+    #[cfg(all(pic32ck, time_driver = "tcc5"))]
     timer!(0x4500_A000, 30, 16, TCC5_OTHER, TCC5_MC0, TCC5_MC1);
-    #[cfg(time_driver = "tcc6")]
+    #[cfg(all(pic32ck, time_driver = "tcc6"))]
     timer!(0x4500_C000, 31, 16, TCC6_OTHER, TCC6_MC0, TCC6_MC1);
-    #[cfg(time_driver = "tcc7")]
+    #[cfg(all(pic32ck, time_driver = "tcc7"))]
     timer!(0x4500_E000, 32, 16, TCC7_OTHER, TCC7_MC0, TCC7_MC1);
+    // The SG00's, with their GCLK channels from the ATDF (TCC0 and TCC1
+    // share one).
+    #[cfg(all(pic32cm_sg, time_driver = "tcc0"))]
+    timer!(0x4481_0000, 25, 16, TCC0_DFS, TCC0_MC0, TCC0_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc1"))]
+    timer!(0x4481_2000, 25, 16, TCC1_DFS, TCC1_MC0, TCC1_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc2"))]
+    timer!(0x4481_4000, 26, 16, TCC2_DFS, TCC2_MC0, TCC2_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc3"))]
+    timer!(0x4481_6000, 27, 16, TCC3_DFS, TCC3_MC0, TCC3_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc4"))]
+    timer!(0x4482_4000, 30, 16, TCC4_DFS, TCC4_MC0, TCC4_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc5"))]
+    timer!(0x4482_6000, 31, 16, TCC5_DFS, TCC5_MC0, TCC5_MC1);
+    #[cfg(all(pic32cm_sg, time_driver = "tcc6"))]
+    timer!(0x4482_8000, 32, 16, TCC6_DFS, TCC6_MC0, TCC6_MC1);
 
     const CTRLA: usize = BASE;
     const CTRLBSET: usize = BASE + 0x05;

@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The chip's unique ID (DS60001795 section 11.8).
+//! The chip's unique ID (DS60001795 section 11.8; on the PIC32CM SG00,
+//! DS60001921 section 12.5, at the same address).
 
 use core::ptr::read_volatile;
 

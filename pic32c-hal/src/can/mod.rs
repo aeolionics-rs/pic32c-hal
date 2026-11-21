@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! CAN0 and CAN1, Bosch `M_CAN` controllers (3.2.x) whose message RAM is
-//! placed by register, as [can-hal](can_hal) channels (feature `can-hal`).
+//! CAN0 and CAN1, Bosch `M_CAN` controllers (3.2.x on the PIC32CK, 3.3.0
+//! in a Microchip wrapper on the PIC32CM SG00) whose message RAM is placed
+//! by register, as [can-hal](can_hal) channels (feature `can-hal`).
 //! The driver core is can-hal's for now: room is left for an
 //! `embedded-can` feature beside it, which would need a core of its own
 //! types.
@@ -658,7 +659,7 @@ fn configure(r: &RegisterBlock, ram: Ram, config: Config, lists: (usize, usize))
     // The message RAM: its 64 KiB block, then each section's place in it.
     // The RAM's data field size everywhere: eight bytes in classic RAM, 64 in
     // FD RAM (RXESC's F0DS, F1DS and RBDS; TXESC's TBDS).
-    r.mrcfg.write(ram.offset() << MRCFG_OFFSET_SHIFT);
+    r.ram_offset().write(ram.offset() << MRCFG_OFFSET_SHIFT);
     let esc = ram.esc();
     r.rxesc.write(esc | (esc << 4) | (esc << 8));
     r.txesc.write(esc);

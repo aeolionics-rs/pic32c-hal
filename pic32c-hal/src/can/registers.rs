@@ -9,6 +9,13 @@
 //! Microchip's integration puts `MRCFG` at 0x08, where Bosch has `CUST`: its
 //! `OFFSET` field supplies the upper 16 bits of every message RAM address,
 //! and the start-address fields (`F0SA`, `EFSA`, `TBSA`, …) the lower 16.
+//!
+//! The PIC32CM SG00's (`M_CAN` 3.3.0, DS60001921 chapter 37) sits inside a
+//! Microchip wrapper: the wrapper's registers (CTRLA's SWRST, CTRLB, its
+//! own interrupt flags) from offset 0, the `M_CAN`'s from 0x100, in
+//! Bosch's layout with `CUST` at 0x08, and a timestamp unit from 0x260. The
+//! same `OFFSET` field is the wrapper's, CTRLB bits 23:16:
+//! [`RegisterBlock::ram_offset`] finds it on either chip.
 
 use core::cell::UnsafeCell;
 use core::ptr::NonNull;
@@ -43,8 +50,9 @@ impl Reg {
 pub(crate) struct RegisterBlock {
     pub(crate) crel: Reg,
     pub(crate) endn: Reg,
-    /// Microchip's message RAM configuration (Bosch's `CUST`).
-    pub(crate) mrcfg: Reg,
+    /// Microchip's message RAM configuration (Bosch's `CUST`, which it is
+    /// on the SG00): use [`Self::ram_offset`].
+    mrcfg: Reg,
     pub(crate) dbtp: Reg,
     pub(crate) test: Reg,
     pub(crate) rwd: Reg,
@@ -94,6 +102,31 @@ pub(crate) struct RegisterBlock {
     pub(crate) txefc: Reg,
     pub(crate) txefs: Reg,
     pub(crate) txefa: Reg,
+}
+
+/// The SG00's `M_CAN` registers' offset in its wrapper, and the wrapper's
+/// CTRLB.
+#[cfg(pic32cm_sg)]
+const WRAPPER_CORE: usize = 0x100;
+#[cfg(pic32cm_sg)]
+const WRAPPER_CTRLB: usize = 0x04;
+
+impl RegisterBlock {
+    /// The register whose bits 23:16 (`OFFSET`) place the message RAM:
+    /// `MRCFG` on the PIC32CK, the wrapper's CTRLB on the SG00.
+    #[cfg(pic32ck)]
+    pub(crate) fn ram_offset(&self) -> &Reg {
+        &self.mrcfg
+    }
+
+    /// See the PIC32CK's.
+    #[cfg(pic32cm_sg)]
+    pub(crate) fn ram_offset(&self) -> &Reg {
+        let _ = &self.mrcfg;
+        // SAFETY: the SG00's `M_CAN` block sits 0x100 into its wrapper's,
+        // whose CTRLB is a 32-bit register at 0x04, which lives as long.
+        unsafe { &*core::ptr::from_ref(self).cast::<Reg>().sub((WRAPPER_CORE - WRAPPER_CTRLB) / 4) }
+    }
 }
 
 const _: () = {

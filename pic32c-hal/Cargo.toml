@@ -14,16 +14,17 @@ publish = false
 pic32ck2051sg01144 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
 pic32ck2051gc01144 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
 pic32cm6408pl10048 = ["dep:pic32cm-pl10-pac", "embassy-hal-internal/prio-bits-2"]
+pic32cm5112sg00100 = ["dep:pic32cm-sg00-pac", "embassy-hal-internal/prio-bits-2"]
 # The PAC's vector table (cortex-m-rt's `device`), and the time driver's
 # vectors.
-rt = ["dep:cortex-m-rt", "pic32ck-gc01-pac?/rt", "pic32ck-sg01-pac?/rt", "pic32cm-pl10-pac?/rt"]
+rt = ["dep:cortex-m-rt", "pic32ck-gc01-pac?/rt", "pic32ck-sg01-pac?/rt", "pic32cm-pl10-pac?/rt", "pic32cm-sg00-pac?/rt"]
 # The embassy-time driver (`time`). It claims embassy-time's global driver,
 # so it is opt-in. `time-driver` alone takes the chip's usual counter (TCC0
-# on the PIC32CK, TC0 and TC1 paired on the PL10); one of the features after
+# on the PIC32CK and the SG00, TC0 and TC1 paired on the PL10); one of the features after
 # it names the counter instead (at most one; build.rs checks it fits the
 # chip).
 time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
-# PIC32CK: a 32-bit TCC.
+# PIC32CK: a 32-bit TCC. (PIC32CM SG00: TCC0 to TCC6, all 16-bit.)
 time-driver-tcc0 = ["time-driver"]
 time-driver-tcc1 = ["time-driver"]
 time-driver-tcc2 = ["time-driver"]
@@ -87,6 +88,7 @@ embedded-storage-async = "0.4.2"
 pic32ck-gc01-pac = { path = "../pac/pic32ck-gc01-pac", optional = true }
 pic32ck-sg01-pac = { path = "../pac/pic32ck-sg01-pac", optional = true }
 pic32cm-pl10-pac = { path = "../pac/pic32cm-pl10-pac", optional = true }
+pic32cm-sg00-pac = { path = "../pac/pic32cm-sg00-pac", optional = true }
 # Atomic read-modify-write on cores without it (the PL10's Cortex-M0+),
 # through critical sections; native elsewhere.
 portable-atomic = { version = "1.11.1", default-features = false, features = ["critical-section"] }

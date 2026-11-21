@@ -1,0 +1,48 @@
+[package]
+name = "pic32cm-sg00-curiosity-pro"
+description = "Board support for Microchip's PIC32CM SG00 Curiosity Pro (EV53V42A), with pic32c-hal's SG00 bench programs as examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# The bench programs, as examples. Bare metal: no test harness on the target.
+[[example]]
+name = "blink"
+test = false
+bench = false
+
+[[example]]
+name = "uart_echo"
+test = false
+bench = false
+
+[[example]]
+name = "watchdog"
+test = false
+bench = false
+
+[[example]]
+name = "can_loopback"
+test = false
+bench = false
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+# The vector table is in program flash at 0x0C000000; boot flash holds only
+# the two words the boot ROM starts from (`boot!`, memory.x).
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
+critical-section = "1.2.0"
+pic32c-hal = { path = "../../pic32c-hal", features = ["can-hal", "pic32cm5112sg00100", "rt", "time-driver", "unstable-pac"] }
+
+# What the examples use.
+[dev-dependencies]
+# Our fork's `aeolionics` branch, as pic32c-hal's `can-hal` feature takes it.
+can-hal = { version = "0.4.3", git = "https://github.com/aeolionics-rs/can-hal-rs", branch = "aeolionics", package = "can-hal-rs", default-features = false }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-time = "0.5.1"
+panic-halt = "1.0.0"
+static_cell = "2.1.1"
+
+[lints]
+workspace = true

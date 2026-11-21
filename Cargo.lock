@@ -1293,6 +1293,7 @@ dependencies = [
  "pic32ck-gc01-pac",
  "pic32ck-sg01-pac",
  "pic32cm-pl10-pac",
+ "pic32cm-sg00-pac",
  "portable-atomic",
  "rand_core 0.10.1",
  "rand_core 0.6.4",
@@ -1382,6 +1383,31 @@ dependencies = [
 
 [[package]]
 name = "pic32cm-pl10-pac"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "vcell",
+]
+
+[[package]]
+name = "pic32cm-sg00-curiosity-pro"
+version = "0.1.0"
+dependencies = [
+ "can-hal-rs",
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "embassy-executor",
+ "embassy-time",
+ "panic-halt",
+ "pic32c-hal",
+ "static_cell",
+]
+
+[[package]]
+name = "pic32cm-sg00-pac"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
