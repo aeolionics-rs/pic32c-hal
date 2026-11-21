@@ -22,9 +22,9 @@ use edge_mdns::host::{Host, Service, ServiceAnswers};
 use edge_mdns::io::{self, DEFAULT_SOCKET};
 use edge_mdns::{HostAnswersMdnsHandler, NoHostAnswers};
 use edge_nal::UdpSplit as _;
-use edge_nal_embassy::{Udp, UdpBuffers};
+use edge_nal_embassy::Udp;
 use embassy_futures::select::{Either, select};
-use embassy_net::{HardwareAddress, Stack};
+use embassy_net::iface::Iface;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Timer, with_timeout};
@@ -33,27 +33,19 @@ use pic32ck_curiosity_ultra::uart::Uart;
 
 /// `pic32ck-` and the MAC's last three bytes, in hex.
 #[must_use]
-pub fn host_name(stack: Stack<'_>) -> heapless::String<16> {
-    let HardwareAddress::Ethernet(mac) = stack.hardware_address();
+pub fn host_name(iface: Iface<'_>) -> heapless::String<16> {
+    let mac = crate::net::mac(iface);
     let mut name = heapless::String::new();
-    let _ = write!(name, "pic32ck-{:02x}{:02x}{:02x}", mac.0[3], mac.0[4], mac.0[5]);
+    let _ = write!(name, "pic32ck-{:02x}{:02x}{:02x}", mac[3], mac[4], mac[5]);
     name
 }
 
 /// The addresses to answer with: IPv4 from DHCP (unspecified if none yet),
-/// and the global IPv6 one, else the link-local one.
-fn addresses(stack: Stack<'_>) -> (Ipv4Addr, Ipv6Addr) {
-    let v4 = stack.config_v4().map_or(Ipv4Addr::UNSPECIFIED, |c| c.address.address());
-    let v6 = stack.config_v6().map_or_else(|| link_local(stack), |c| c.address.address());
+/// and the global IPv6 one, else the link-local one (xarxa reports it now).
+fn addresses(iface: Iface<'_>) -> (Ipv4Addr, Ipv6Addr) {
+    let v4 = crate::net::v4(iface).map_or(Ipv4Addr::UNSPECIFIED, |c| c.address());
+    let v6 = crate::net::v6(iface).map(|c| c.address()).or_else(|| crate::net::link_local(iface)).unwrap_or(Ipv6Addr::UNSPECIFIED);
     (v4, v6)
-}
-
-/// The link-local address embassy-net gives the interface (`fe80::/64` with
-/// the MAC's modified EUI-64).
-fn link_local(stack: Stack<'_>) -> Ipv6Addr {
-    let HardwareAddress::Ethernet(m) = stack.hardware_address();
-    let m = m.0;
-    Ipv6Addr::from([0xfe, 0x80, 0, 0, 0, 0, 0, 0, m[0] ^ 0x02, m[1], m[2], 0xff, 0xfe, m[3], m[4], m[5]])
 }
 
 /// A small PRNG for the responder's random delays (RFC 6762's 20-120 ms
@@ -94,13 +86,13 @@ pub struct Advert {
 
 /// Answers for `name`, with `advert`, forever; starts over when the
 /// addresses change. `seed` seeds the jitter (the chip's unique ID will do).
-pub async fn run(stack: Stack<'_>, name: &str, advert: Advert, seed: u64) -> ! {
-    let buffers = UdpBuffers::<1, 1500, 1500, 2>::new();
-    let udp = Udp::new(stack, &buffers);
+pub async fn run(iface: Iface<'_>, name: &str, advert: Advert, seed: u64) -> ! {
+    // The socket's datagrams wait in the stack's pool.
+    let udp = Udp::new(iface.stack());
     let (recv_buf, send_buf) = (VecBufAccess::<NoopRawMutex, 1500>::new(), VecBufAccess::<NoopRawMutex, 1500>::new());
     // Wait for IPv4 (or give up after 20 s and answer with what there is).
     let _ = with_timeout(Duration::from_secs(20), async {
-        while stack.config_v4().is_none() {
+        while crate::net::v4(iface).is_none() {
             Timer::after(Duration::from_millis(250)).await;
         }
     })
@@ -127,7 +119,7 @@ pub async fn run(stack: Stack<'_>, name: &str, advert: Advert, seed: u64) -> ! {
         &signal,
     );
     loop {
-        let (ipv4, ipv6) = addresses(stack);
+        let (ipv4, ipv6) = addresses(iface);
         let host = Host { hostname: name, ipv4, ipv6, ttl: Ttl::from_secs(120) };
         let service = Service {
             name,
@@ -145,7 +137,7 @@ pub async fn run(stack: Stack<'_>, name: &str, advert: Advert, seed: u64) -> ! {
         let changed = async {
             loop {
                 Timer::after(Duration::from_secs(5)).await;
-                if addresses(stack) != (ipv4, ipv6) {
+                if addresses(iface) != (ipv4, ipv6) {
                     break;
                 }
             }

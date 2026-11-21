@@ -39,6 +39,8 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use critical_section::Mutex;
 use pic32ck_curiosity_ultra::clocks;
+#[path = "common/net.rs"]
+mod net;
 #[path = "common/mdns.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod mdns;
@@ -51,8 +53,10 @@ mod tls;
 use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use embassy_futures::join::join5;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, ConfigV6, DhcpConfig, Runner, Stack, StackResources};
+use embassy_net::iface::dhcpv4::DhcpConfig;
+use embassy_net::iface::slaac::SlaacConfig;
+use embassy_net::iface::Iface;
+use embassy_net::{Runner, Stack, StackStorage, StaticPool};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_alloc::TlsfHeap;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
@@ -184,8 +188,15 @@ impl rustls::time_provider::TimeProvider for Clock {
 }
 
 static QUEUE: StaticCell<PacketQueue<4, 8>> = StaticCell::new();
-/// Sockets: DHCP, DNS, two HTTPS servers, SNTP, mDNS, and spare.
-static RESOURCES: StaticCell<StackResources<8>> = StaticCell::new();
+static ETHERNET: StaticCell<Ethernet<'static>> = StaticCell::new();
+/// The stack's own state; its socket tables are sized by xarxa's features
+/// (two HTTPS sockets and a listener; SNTP's, mDNS's and the DNS client's
+/// UDP sockets).
+static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
+/// The stack's packets: the MAC's receive ring holds eight, its transmit
+/// ring up to four, and the rest are the stack's. (TCP's data is in the
+/// sockets' own buffers; UDP's datagrams wait here.)
+static POOL: StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }> = StaticPool::new();
 static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
     start_read_request: Duration::from_secs(5),
     persistent_start_read_request: Duration::from_secs(2),
@@ -208,11 +219,11 @@ static BLOB: [u8; 65_536] = {
 };
 
 #[embassy_executor::task]
-async fn net(mut runner: Runner<'static, Ethernet<'static>>) -> ! {
+async fn net(mut runner: Runner<'static>) -> ! {
     runner.run().await
 }
 
-fn status(stack: Stack<'_>) -> impl IntoResponse {
+fn status(iface: Iface<'_>) -> impl IntoResponse {
     let mut text = heapless::String::<640>::new();
     let _ = write!(
         text,
@@ -220,9 +231,9 @@ fn status(stack: Stack<'_>) -> impl IntoResponse {
         Instant::now().as_secs(),
         sntp::now_us().map(|us| us / 1_000_000),
         sntp::last_sync(),
-        if stack.is_link_up() { "up" } else { "down" },
-        stack.config_v4().map(|c| c.address),
-        stack.config_v6().map(|c| c.address),
+        if iface.is_link_up() { "up" } else { "down" },
+        net::v4(iface),
+        net::v6(iface),
         heap_used(),
         heap_peak(),
         HEAP_SIZE
@@ -230,8 +241,9 @@ fn status(stack: Stack<'_>) -> impl IntoResponse {
     text
 }
 
-/// One HTTPS connection at a time on port 443.
-async fn https<P: picoserve::routing::PathRouter>(app: &picoserve::Router<P>, stack: Stack<'_>, config: Arc<ServerConfig>, name: &str) -> ! {
+/// One HTTPS connection at a time from port 443's `listener`, which the
+/// tasks serving it share.
+async fn https<'d, P: picoserve::routing::PathRouter>(app: &picoserve::Router<P>, stack: Stack<'d>, listener: &net::SharedListener<'d>, config: Arc<ServerConfig>, name: &str) -> ! {
     let mut tcp_rx = [0; 4096];
     let mut tcp_tx = [0; 4096];
     // A whole record from the peer (16,384 bytes of payload, plus header,
@@ -245,11 +257,8 @@ async fn https<P: picoserve::routing::PathRouter>(app: &picoserve::Router<P>, st
     let mut buffer = [0; 2048];
     let mut log = Uart;
     loop {
-        let mut socket = TcpSocket::new(stack, &mut tcp_rx, &mut tcp_tx);
-        if socket.accept(443).await.is_err() {
-            continue;
-        }
-        let _ = writeln!(log, "{name}: connection from {:?}", socket.remote_endpoint());
+        let Ok(mut socket) = net::accept(stack, listener, &mut tcp_rx, &mut tcp_tx).await else { continue };
+        let _ = writeln!(log, "{name}: connection from {:?}", socket.remote_addr());
         socket.set_nagle_enabled(false);
         socket.set_keep_alive(Some(Duration::from_secs(30)));
         socket.set_timeout(Some(Duration::from_secs(45)));
@@ -339,17 +348,18 @@ async fn main(spawner: Spawner) {
             Timer::after(Duration::from_millis(100)).await;
         }
     };
-    let mut net_config = Config::dhcpv4(DhcpConfig::default());
-    net_config.ipv6 = ConfigV6::Slaac;
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = embassy_net::new(ethernet, net_config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let iface = stack.add_iface_borrowed(ETHERNET.init(ethernet)).unwrap();
+    iface.set_dhcpv4(Some(DhcpConfig::default())).unwrap();
+    iface.set_slaac(Some(SlaacConfig::default())).unwrap();
     spawner.spawn(net(runner).unwrap());
-    let _ = with_timeout(Duration::from_secs(30), stack.wait_config_up()).await;
-    let _ = writeln!(log, "IPv4 {:?}; IPv6 {:?}", stack.config_v4().map(|c| c.address), stack.config_v6().map(|c| c.address));
+    let _ = with_timeout(Duration::from_secs(30), iface.wait_config_up()).await;
+    let _ = writeln!(log, "IPv4 {:?}; IPv6 {:?}; link-local {:?}", net::v4(iface), net::v6(iface), net::link_local(iface));
 
     let app = picoserve::Router::new()
         .route("/", get_service(picoserve::response::File::html("<!doctype html><title>PIC32CK</title><h1>Hello over TLS from the PIC32CK</h1><p>pic32c-hal, embassy-net, rustls and picoserve.</p>\n")))
-        .route("/status", get(move || async move { status(stack) }))
+        .route("/status", get(move || async move { status(iface) }))
         .route("/blob", get_service(picoserve::response::File::with_content_type("application/octet-stream", &BLOB)));
 
     let blink = async {
@@ -365,14 +375,15 @@ async fn main(spawner: Spawner) {
             }
         }
     };
-    let name = mdns::host_name(stack);
+    let name = mdns::host_name(iface);
+    let listener = net::listen(stack, 443);
     let advert = mdns::Advert { service: "_https", protocol: "_tcp", port: 443 };
     #[expect(clippy::large_futures, reason = "main's future lives in the executor's static task storage, not on a stack")]
     join5(
-        https(&app, stack, config.clone(), "https0"),
-        https(&app, stack, config, "https1"),
-        sntp::run(stack),
-        mdns::run(stack, &name, advert, seed),
+        https(&app, stack, &listener, config.clone(), "https0"),
+        https(&app, stack, &listener, config, "https1"),
+        sntp::run(iface),
+        mdns::run(iface, &name, advert, seed),
         blink,
     )
     .await;

@@ -32,9 +32,9 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_time::Timer;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{self as cdc_acm, CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::{Builder, Config, Handler};
+use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
 use panic_halt as _;
 use pic32c_hal::{bind_interrupts, usbhs};
 use pic32ck_curiosity_ultra::time;
@@ -121,6 +121,8 @@ async fn main(_spawner: Spawner) {
     config.max_power = 100;
     config.max_packet_size_0 = 64;
     config.supports_remote_wakeup = true;
+    // The class's bulk packets: 512 bytes at high speed.
+    config.max_speed = if FULL_SPEED { UsbDeviceSpeed::Full } else { UsbDeviceSpeed::High };
 
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
@@ -128,7 +130,7 @@ async fn main(_spawner: Spawner) {
     let mut state = State::new();
     let mut builder = Builder::new(driver, config, &mut config_descriptor, &mut bos_descriptor, &mut [], &mut control_buf);
     builder.handler(EVENTS.init(Events));
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, PACKET);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, cdc_acm::Config::new());
     let mut usb = builder.build();
     let _ = writeln!(log, "USB device built; attaching");
 
@@ -167,7 +169,7 @@ async fn main(_spawner: Spawner) {
                         ECHOED.fetch_add(n, Ordering::Relaxed);
                     }
                     Err(EndpointError::BufferOverflow) => {}
-                    Err(EndpointError::Disabled) => break,
+                    Err(_) => break,
                 }
             }
             let _ = writeln!(Uart, "disconnected");

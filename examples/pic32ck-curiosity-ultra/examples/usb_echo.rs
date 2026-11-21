@@ -18,7 +18,7 @@ use core::fmt::Write;
 use pic32ck_curiosity_ultra::uart::Uart;
 use pic32ck_curiosity_ultra::{clocks, time};
 use embassy_executor::Spawner;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::device::{self as cdc_acm, CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
 use pic32c_hal::{bind_interrupts, usb};
@@ -53,7 +53,7 @@ async fn main(_spawner: Spawner) {
     let mut control_buf = [0; 64];
     let mut state = State::new();
     let mut builder = Builder::new(driver, config, &mut config_descriptor, &mut bos_descriptor, &mut [], &mut control_buf);
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, cdc_acm::Config::new());
     let mut usb = builder.build();
     let _ = writeln!(log, "USB device built; attaching");
 
@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
                         echoed += n;
                     }
                     Err(EndpointError::BufferOverflow) => {}
-                    Err(EndpointError::Disabled) => break,
+                    Err(_) => break,
                 }
             }
             let _ = writeln!(log, "disconnected after echoing {echoed} bytes");
