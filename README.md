@@ -2,9 +2,18 @@ pic32c-hal
 ==========
 
 Rust drivers for Microchip's PIC32C Arm microcontrollers, starting with the
-PIC32CK SG and GC (Cortex-M33). No other Rust HAL covers the PIC32C parts.
-Private while it reaches a working baseline; the plan is to open it, and
-later to bring it to Embassy or another larger community.
+PIC32CK SG/GC (Cortex-M33) and PIC32CM-PL (Cortex-M0+).
+We don't know of any other Rust HAL that covers the PIC32C parts at this time.
+
+This repo is under active development with dependencies on as yet unreleased
+versions of:
+
+* can-hal-rs, rather than embedded-can, for CAN-FD; our fork of it, for
+  confirmed transmission, bus recovery and statistics
+* can-common, support code shared with CAN drivers in our other HALs
+
+We also expect to move to embassy-net's xarxa-based release ahead of time.
+The plan is to publish to crates.io once these have stabilized.
 
 - `pic32c-hal`: the drivers, one module each, on the registers directly,
   in Embassy's style: `init(Config)` returns the `Peripherals` singletons,
