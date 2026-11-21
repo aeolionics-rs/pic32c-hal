@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: 2026 Aeolionics, LLC
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Local overrides, untracked: a [patch] pointing the git dependencies at
+# checkouts beside this repository, for changes not yet pushed (see the
+# README).
+include = [{ path = "local.toml", optional = true }]
+
+# getrandom (under rustls-rustcrypto) takes its bytes from a function the
+# firmware defines: pic32ck-curiosity-ultra's eth_https backs it with the TRNG.
+[target.thumbv8m.main-none-eabihf]
+rustflags = ["--cfg", "getrandom_backend=\"custom\""]

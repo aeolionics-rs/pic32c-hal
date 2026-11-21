@@ -1,0 +1,40 @@
+[package]
+name = "pic32cm-pl10-curiosity-nano"
+description = "Board support for Microchip's PIC32CM PL10 Curiosity Nano (EV10P22A), with pic32c-hal's PL10 bench programs as examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# The bench programs, as examples. Bare metal: no test harness on the target.
+[[example]]
+name = "blink"
+test = false
+bench = false
+
+[[example]]
+name = "uart_bridge"
+test = false
+bench = false
+
+[[example]]
+name = "uart_echo"
+test = false
+bench = false
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
+critical-section = "1.2.0"
+pic32c-hal = { path = "../../pic32c-hal", features = ["pic32cm6408pl10048", "rt", "time-driver", "unstable-pac"] }
+
+# What the examples use.
+[dev-dependencies]
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-futures = "0.1.2"
+embassy-time = "0.5.1"
+panic-halt = "1.0.0"
+static_cell = "2.1.1"
+
+[lints]
+workspace = true

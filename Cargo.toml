@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-pl10-curiosity-nano", "pac/pic32ck-gc01-pac", "pac/pic32ck-sg01-pac", "pac/pic32cm-pl10-pac", "pic32c-hal"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+
+[profile.dev]
+# Symbols don't take flash space.
+debug = true
+opt-level = "s"
+
+[profile.release]
+debug = true
+opt-level = "s"
+lto = "fat"
+codegen-units = 1

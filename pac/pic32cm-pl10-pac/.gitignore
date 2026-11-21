@@ -1,0 +1,3 @@
+/target
+# A library used by path: its lockfile is the firmware's.
+Cargo.lock

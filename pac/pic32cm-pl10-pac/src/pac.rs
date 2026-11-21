@@ -1,0 +1,130 @@
+#[repr(C)]
+#[doc = "Register block"]
+pub struct RegisterBlock {
+    wrctrl: Wrctrl,
+    evctrl: Evctrl,
+    _reserved2: [u8; 0x03],
+    intenclr: Intenclr,
+    intenset: Intenset,
+    _reserved4: [u8; 0x06],
+    intflagahb: Intflagahb,
+    intflaga: Intflaga,
+    intflagb: Intflagb,
+    intflagc: Intflagc,
+    _reserved8: [u8; 0x14],
+    statusa: Statusa,
+    statusb: Statusb,
+    statusc: Statusc,
+}
+impl RegisterBlock {
+    #[doc = "0x00 - Write Control"]
+    #[inline(always)]
+    pub const fn wrctrl(&self) -> &Wrctrl {
+        &self.wrctrl
+    }
+    #[doc = "0x04 - Event Control"]
+    #[inline(always)]
+    pub const fn evctrl(&self) -> &Evctrl {
+        &self.evctrl
+    }
+    #[doc = "0x08 - Interrupt Enable Clear"]
+    #[inline(always)]
+    pub const fn intenclr(&self) -> &Intenclr {
+        &self.intenclr
+    }
+    #[doc = "0x09 - Interrupt Enable Set"]
+    #[inline(always)]
+    pub const fn intenset(&self) -> &Intenset {
+        &self.intenset
+    }
+    #[doc = "0x10 - AHB Client Bus Interrupt Flag Status and Clear"]
+    #[inline(always)]
+    pub const fn intflagahb(&self) -> &Intflagahb {
+        &self.intflagahb
+    }
+    #[doc = "0x14 - Peripheral Interrupt Flag Status and Clear A"]
+    #[inline(always)]
+    pub const fn intflaga(&self) -> &Intflaga {
+        &self.intflaga
+    }
+    #[doc = "0x18 - Peripheral Interrupt Flag Status and Clear B"]
+    #[inline(always)]
+    pub const fn intflagb(&self) -> &Intflagb {
+        &self.intflagb
+    }
+    #[doc = "0x1c - Peripheral Interrupt Flag Status and Clear C"]
+    #[inline(always)]
+    pub const fn intflagc(&self) -> &Intflagc {
+        &self.intflagc
+    }
+    #[doc = "0x34 - Peripheral Write Protection Status A"]
+    #[inline(always)]
+    pub const fn statusa(&self) -> &Statusa {
+        &self.statusa
+    }
+    #[doc = "0x38 - Peripheral Write Protection Status B"]
+    #[inline(always)]
+    pub const fn statusb(&self) -> &Statusb {
+        &self.statusb
+    }
+    #[doc = "0x3c - Peripheral Write Protection Status C"]
+    #[inline(always)]
+    pub const fn statusc(&self) -> &Statusc {
+        &self.statusc
+    }
+}
+#[doc = "WRCTRL (rw) register accessor: Write Control\n\nYou can [`read`](crate::Reg::read) this register and get [`wrctrl::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`wrctrl::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@wrctrl`] module"]
+#[doc(alias = "WRCTRL")]
+pub type Wrctrl = crate::Reg<wrctrl::WrctrlSpec>;
+#[doc = "Write Control"]
+pub mod wrctrl;
+#[doc = "EVCTRL (rw) register accessor: Event Control\n\nYou can [`read`](crate::Reg::read) this register and get [`evctrl::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`evctrl::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@evctrl`] module"]
+#[doc(alias = "EVCTRL")]
+pub type Evctrl = crate::Reg<evctrl::EvctrlSpec>;
+#[doc = "Event Control"]
+pub mod evctrl;
+#[doc = "INTENCLR (rw) register accessor: Interrupt Enable Clear\n\nYou can [`read`](crate::Reg::read) this register and get [`intenclr::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intenclr::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intenclr`] module"]
+#[doc(alias = "INTENCLR")]
+pub type Intenclr = crate::Reg<intenclr::IntenclrSpec>;
+#[doc = "Interrupt Enable Clear"]
+pub mod intenclr;
+#[doc = "INTENSET (rw) register accessor: Interrupt Enable Set\n\nYou can [`read`](crate::Reg::read) this register and get [`intenset::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intenset::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intenset`] module"]
+#[doc(alias = "INTENSET")]
+pub type Intenset = crate::Reg<intenset::IntensetSpec>;
+#[doc = "Interrupt Enable Set"]
+pub mod intenset;
+#[doc = "INTFLAGAHB (rw) register accessor: AHB Client Bus Interrupt Flag Status and Clear\n\nYou can [`read`](crate::Reg::read) this register and get [`intflagahb::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intflagahb::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intflagahb`] module"]
+#[doc(alias = "INTFLAGAHB")]
+pub type Intflagahb = crate::Reg<intflagahb::IntflagahbSpec>;
+#[doc = "AHB Client Bus Interrupt Flag Status and Clear"]
+pub mod intflagahb;
+#[doc = "INTFLAGA (rw) register accessor: Peripheral Interrupt Flag Status and Clear A\n\nYou can [`read`](crate::Reg::read) this register and get [`intflaga::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intflaga::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intflaga`] module"]
+#[doc(alias = "INTFLAGA")]
+pub type Intflaga = crate::Reg<intflaga::IntflagaSpec>;
+#[doc = "Peripheral Interrupt Flag Status and Clear A"]
+pub mod intflaga;
+#[doc = "INTFLAGB (rw) register accessor: Peripheral Interrupt Flag Status and Clear B\n\nYou can [`read`](crate::Reg::read) this register and get [`intflagb::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intflagb::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intflagb`] module"]
+#[doc(alias = "INTFLAGB")]
+pub type Intflagb = crate::Reg<intflagb::IntflagbSpec>;
+#[doc = "Peripheral Interrupt Flag Status and Clear B"]
+pub mod intflagb;
+#[doc = "INTFLAGC (rw) register accessor: Peripheral Interrupt Flag Status and Clear C\n\nYou can [`read`](crate::Reg::read) this register and get [`intflagc::R`]. You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`intflagc::W`]. You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@intflagc`] module"]
+#[doc(alias = "INTFLAGC")]
+pub type Intflagc = crate::Reg<intflagc::IntflagcSpec>;
+#[doc = "Peripheral Interrupt Flag Status and Clear C"]
+pub mod intflagc;
+#[doc = "STATUSA (r) register accessor: Peripheral Write Protection Status A\n\nYou can [`read`](crate::Reg::read) this register and get [`statusa::R`]. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@statusa`] module"]
+#[doc(alias = "STATUSA")]
+pub type Statusa = crate::Reg<statusa::StatusaSpec>;
+#[doc = "Peripheral Write Protection Status A"]
+pub mod statusa;
+#[doc = "STATUSB (r) register accessor: Peripheral Write Protection Status B\n\nYou can [`read`](crate::Reg::read) this register and get [`statusb::R`]. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@statusb`] module"]
+#[doc(alias = "STATUSB")]
+pub type Statusb = crate::Reg<statusb::StatusbSpec>;
+#[doc = "Peripheral Write Protection Status B"]
+pub mod statusb;
+#[doc = "STATUSC (r) register accessor: Peripheral Write Protection Status C\n\nYou can [`read`](crate::Reg::read) this register and get [`statusc::R`]. See [API](https://docs.rs/svd2rust/#read--modify--write-api).\n\nFor information about available fields see [`mod@statusc`] module"]
+#[doc(alias = "STATUSC")]
+pub type Statusc = crate::Reg<statusc::StatuscSpec>;
+#[doc = "Peripheral Write Protection Status C"]
+pub mod statusc;

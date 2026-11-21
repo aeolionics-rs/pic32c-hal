@@ -1,0 +1,259 @@
+[package]
+name = "pic32ck-curiosity-ultra"
+description = "Board support for Microchip's PIC32CK SG01 and GC01 Curiosity Ultra boards, with pic32c-hal's bench programs as examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# The bench programs, as examples (`cargo build --example NAME`). Bare
+# metal: there is no test harness on the target.
+[[example]]
+name = "flash_async"
+test = false
+bench = false
+
+[[example]]
+name = "trng"
+test = false
+bench = false
+
+[[example]]
+name = "adc"
+test = false
+bench = false
+
+[[example]]
+name = "crypto_bench"
+required-features = ["tls"]
+test = false
+bench = false
+
+[[example]]
+name = "eth_https"
+required-features = ["tls"]
+test = false
+bench = false
+
+[[example]]
+name = "blink"
+test = false
+bench = false
+
+[[example]]
+name = "clocks"
+test = false
+bench = false
+
+[[example]]
+name = "usb_echo"
+test = false
+bench = false
+
+[[example]]
+name = "usbhs_echo"
+test = false
+bench = false
+
+[[example]]
+name = "usbhs_ncm"
+test = false
+bench = false
+
+[[example]]
+name = "timer"
+test = false
+bench = false
+
+[[example]]
+name = "dma"
+test = false
+bench = false
+
+[[example]]
+name = "moff"
+test = false
+bench = false
+
+[[example]]
+name = "i2c"
+test = false
+bench = false
+
+[[example]]
+name = "uart_lines"
+test = false
+bench = false
+
+[[example]]
+name = "uart_flow"
+test = false
+bench = false
+
+[[example]]
+name = "uart_ring"
+test = false
+bench = false
+
+[[example]]
+name = "uart_link"
+test = false
+bench = false
+
+[[example]]
+name = "uart_peer"
+test = false
+bench = false
+
+[[example]]
+name = "rtc"
+test = false
+bench = false
+
+[[example]]
+name = "spi"
+test = false
+bench = false
+
+[[example]]
+name = "flash"
+test = false
+bench = false
+
+[[example]]
+name = "w5500"
+test = false
+bench = false
+
+[[example]]
+name = "watchdog"
+test = false
+bench = false
+
+[[example]]
+name = "gpio"
+test = false
+bench = false
+
+[[example]]
+name = "uart_echo"
+test = false
+bench = false
+
+[[example]]
+name = "exti"
+test = false
+bench = false
+
+[[example]]
+name = "nmi"
+test = false
+bench = false
+
+[[example]]
+name = "eth_ping"
+test = false
+bench = false
+
+[[example]]
+name = "eth_http"
+test = false
+bench = false
+
+[[example]]
+name = "can_loopback"
+test = false
+bench = false
+
+[[example]]
+name = "can_ping"
+test = false
+bench = false
+
+[[example]]
+name = "can_echo"
+test = false
+bench = false
+
+[[example]]
+name = "can_listen"
+test = false
+bench = false
+
+[features]
+# The board, exactly one: the PIC32CK SG01 Curiosity Ultra (EV33A17A), or the
+# PIC32CK GC01 Curiosity Ultra.
+sg01 = ["pic32c-hal/pic32ck2051sg01144"]
+gc01 = ["pic32c-hal/pic32ck2051gc01144"]
+# eth_https and crypto_bench: the TLS stack below (`examples/common/tls.rs`,
+# rustls on embassy-net). It needs a global allocator, so it's off for the
+# other examples.
+tls = ["dep:embedded-alloc", "dep:getrandom", "dep:p256", "dep:p256-cortex-m4", "dep:pkcs8", "dep:primeorder", "dep:rand-core-06", "dep:rustls", "dep:rustls-rustcrypto", "dep:salty", "dep:sec1", "dep:sha2", "dep:x25519-dalek"]
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
+critical-section = "1.2.0"
+pic32c-hal = { path = "../../pic32c-hal", features = ["rt", "time-driver", "unstable-pac"] }
+# eth_https's and crypto_bench's TLS stack, behind `tls`: Cargo has no
+# optional dev-dependencies, and these need a global allocator (and
+# arm-none-eabi-gcc), so the other examples go without.
+embedded-alloc = { version = "0.7.0", default-features = false, features = ["tlsf"], optional = true }
+# TLS (the eth_https spike): rustls's unbuffered API with RustCrypto. Its
+# getrandom calls go to the TRNG through the custom backend
+# (`.cargo/config.toml` sets `getrandom_backend="custom"`).
+getrandom = { version = "0.4.3", default-features = false, features = ["sys_rng"], optional = true }
+rustls = { version = "0.23.46", default-features = false, optional = true }
+rustls-rustcrypto = { version = "0.1.0-pre.0", default-features = false, features = ["alloc", "zeroize"], optional = true }
+# For `tls::provider`'s key exchanges (rustls-rustcrypto's own are private).
+p256 = { version = "0.14.0", default-features = false, features = ["ecdh", "ecdsa", "pkcs8", "precomputed-tables"], optional = true }
+sha2 = { version = "0.11.1", default-features = false, optional = true }
+# P256-Cortex-M4 (assembly, MIT): fast P-256 ECDSA and ECDH. Its C and
+# assembly build with arm-none-eabi-gcc, which must be on the PATH.
+p256-cortex-m4 = { version = "0.1.0-alpha.6", default-features = false, optional = true }
+rand-core-06 = { package = "rand_core", version = "0.6.4", default-features = false, optional = true }
+# salty: X25519 with Bjoern Haase's Cortex-M4 field arithmetic (CC0;
+# salty is MIT OR Apache-2.0); it links a prebuilt archive of that assembly.
+salty = { version = "0.3.0", default-features = false, optional = true }
+# Parsing the PKCS #8 / SEC1 private key without any curve arithmetic.
+pkcs8 = { version = "0.11.0", default-features = false, optional = true }
+sec1 = { version = "0.8.1", default-features = false, features = ["der"], optional = true }
+# p256's precomputed base-point table (~25 KB of RAM, built on first use)
+# needs a once-cell; on no_std that's critical-section.
+primeorder = { version = "0.14.0", default-features = false, features = ["critical-section"], optional = true }
+x25519-dalek = { version = "3.0.0", default-features = false, features = ["static_secrets", "zeroize"], optional = true }
+
+# What the examples use.
+[dev-dependencies]
+embassy-embedded-hal = "0.6.0"
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-futures = "0.1.2"
+embassy-sync = "0.8.0"
+embassy-time = "0.5.1"
+embassy-usb = { version = "0.6.0", default-features = false }
+embedded-hal = "1.0.0"
+embedded-storage = "0.3.2"
+embedded-storage-async = "0.4.2"
+# The HAL again, with the features the examples use beyond the library's.
+pic32c-hal = { path = "../../pic32c-hal", features = ["can-hal", "eth", "exti", "rt", "time-driver", "usb", "usbhs", "unstable-pac"] }
+panic-halt = "1.0.0"
+# Our fork's `aeolionics` branch, as pic32c-hal's `can-hal` feature takes it.
+can-hal = { version = "0.4.3", git = "https://github.com/aeolionics-rs/can-hal-rs", branch = "aeolionics", package = "can-hal-rs", default-features = false }
+embassy-net = { version = "0.9.1", features = ["auto-icmp-echo-reply", "dhcpv4", "dns", "icmp", "medium-ethernet", "multicast", "proto-ipv4", "proto-ipv6", "slaac", "tcp", "udp"] }
+# Only to raise the interface's address count from 2: IPv4, the SLAAC
+# address and the link-local one (embassy-net drops the last without one).
+smoltcp = { version = "0.13.1", default-features = false, features = ["iface-max-addr-count-3"] }
+static_cell = "2.1.1"
+picoserve = { version = "0.21.0", default-features = false, features = ["embassy"] }
+heapless = "0.9"
+embedded-io-async = "0.7"
+embedded-io = "0.7"
+sntpc = { version = "0.11.0", default-features = false }
+# mDNS (the `mdns` module).
+edge-mdns = { version = "0.8.0", default-features = false, features = ["io"] }
+edge-nal = "0.7.0"
+edge-nal-embassy = { version = "0.9.0", default-features = false, features = ["medium-ethernet", "multicast", "proto-ipv4", "proto-ipv6", "udp"] }
+rand-core-010 = { package = "rand_core", version = "0.10.1", default-features = false }
+
+[lints]
+workspace = true

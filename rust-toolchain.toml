@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Aeolionics, LLC
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["thumbv8m.main-none-eabihf", "thumbv6m-none-eabi"]

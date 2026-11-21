@@ -1,0 +1,101 @@
+[package]
+name = "pic32c-hal"
+description = "Drivers for Microchip's PIC32C, starting with the PIC32CK: clocks, GPIO, DMA, UART, SPI, I2C, CAN, Ethernet, USB, flash, TRNG, watchdog and an embassy-time driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+keywords = ["pic32ck", "microchip", "embassy", "hal"]
+categories = ["embedded", "hardware-support", "no-std"]
+publish = false
+
+[features]
+# The chip, exactly one. build.rs turns it into cfgs naming its family
+# and peripheral IP versions.
+pic32ck2051sg01144 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck2051gc01144 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32cm6408pl10048 = ["dep:pic32cm-pl10-pac", "embassy-hal-internal/prio-bits-2"]
+# The PAC's vector table (cortex-m-rt's `device`), and the time driver's
+# vectors.
+rt = ["dep:cortex-m-rt", "pic32ck-gc01-pac?/rt", "pic32ck-sg01-pac?/rt", "pic32cm-pl10-pac?/rt"]
+# The embassy-time driver (`time`). It claims embassy-time's global driver,
+# so it is opt-in. `time-driver` alone takes the chip's usual counter (TCC0
+# on the PIC32CK, TC0 and TC1 paired on the PL10); one of the features after
+# it names the counter instead (at most one; build.rs checks it fits the
+# chip).
+time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+# PIC32CK: a 32-bit TCC.
+time-driver-tcc0 = ["time-driver"]
+time-driver-tcc1 = ["time-driver"]
+time-driver-tcc2 = ["time-driver"]
+time-driver-tcc3 = ["time-driver"]
+# PIC32CK: a 16-bit TCC, which interrupts every 32.8 ms at 1 MHz.
+time-driver-tcc4 = ["time-driver"]
+time-driver-tcc5 = ["time-driver"]
+time-driver-tcc6 = ["time-driver"]
+time-driver-tcc7 = ["time-driver"]
+# PL10: TC0 and TC1 paired as 32 bits, or one TC as 16 bits.
+time-driver-tc0-tc1 = ["time-driver"]
+time-driver-tc0 = ["time-driver"]
+time-driver-tc1 = ["time-driver"]
+time-driver-tc2 = ["time-driver"]
+# Waiting on pins through the EIC (`exti`); with `rt`, the HAL owns the EIC's
+# 16 vectors.
+exti = []
+# The Ethernet MAC as an embassy-net driver (`eth`), in RMII; it uses
+# embassy-time to poll the PHY, so the application needs a time driver.
+eth = ["dep:embassy-net-driver", "dep:embassy-time"]
+# The embassy-usb driver for the full-speed USB controller (`usb`).
+usb = ["dep:embassy-usb-driver"]
+# The embassy-usb driver for the high-speed USB controller (`usbhs`); it
+# uses embassy-time to watch VBUS and time remote wakeup, so the application
+# needs a time driver.
+usbhs = ["dep:embassy-usb-driver", "dep:embassy-time"]
+# CAN0 and CAN1 as can-hal channels (`can`). Named for the traits, leaving
+# room for an `embedded-can` feature beside it.
+can-hal = ["dep:can-common", "dep:can-hal"]
+# `pac`: the chip's PAC, re-exported, outside the HAL's stable API.
+unstable-pac = []
+# defmt formatting of the peripheral singletons.
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "can-common?/defmt"]
+
+[dependencies]
+# What CAN drivers share. A checkout beside this repository can be patched in
+# by `.cargo/local.toml` (see the README).
+can-common = { version = "0.1.0", git = "https://github.com/aeolionics-rs/can-common", optional = true }
+# Our fork's `aeolionics` branch, for confirmed transmission, recovery and
+# statistics.
+can-hal = { version = "0.4.3", git = "https://github.com/aeolionics-rs/can-hal-rs", branch = "aeolionics", package = "can-hal-rs", default-features = false, optional = true }
+cortex-m = "0.7.7"
+cortex-m-rt = { version = "0.7.5", optional = true }
+critical-section = "1.2.0"
+defmt = { version = "1.0.1", optional = true }
+embassy-hal-internal = { version = "0.5.0", features = ["cortex-m"] }
+embassy-net-driver = { version = "0.2.0", optional = true }
+embassy-embedded-hal = "0.6.0"
+embassy-futures = "0.1.2"
+embassy-sync = "0.8.0"
+embassy-time = { version = "0.5.1", optional = true }
+embassy-time-driver = { version = "0.2.2", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", optional = true }
+embassy-usb-driver = { version = "0.2.2", optional = true }
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.2"
+embedded-storage-async = "0.4.2"
+pic32ck-gc01-pac = { path = "../pac/pic32ck-gc01-pac", optional = true }
+pic32ck-sg01-pac = { path = "../pac/pic32ck-sg01-pac", optional = true }
+pic32cm-pl10-pac = { path = "../pac/pic32cm-pl10-pac", optional = true }
+# Atomic read-modify-write on cores without it (the PL10's Cortex-M0+),
+# through critical sections; native elsewhere.
+portable-atomic = { version = "1.11.1", default-features = false, features = ["critical-section"] }
+rand-core-06 = { package = "rand_core", version = "0.6.4", default-features = false }
+rand-core-09 = { package = "rand_core", version = "0.9.5", default-features = false }
+rand-core-010 = { package = "rand_core", version = "0.10.1", default-features = false }
+
+[dev-dependencies]
+critical-section = { version = "1.2.0", features = ["std"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,59 @@
+Bench for HAL testing
+=====================
+
+The boards and wiring that run every example in `examples/`. Anything not
+listed here (sensors, Ethernet modules, ADC jumpers) is wired only while
+its example is being tested.
+
+# Boards
+
+| Board | Why |
+|---|---|
+| PIC32CK SG01 Curiosity Ultra (EV33A17A) | The main CK board: TrustZone (the `PORT_SEC` view), the HSM; `uart_peer`, the far end for the UART examples. |
+| PIC32CK GC01 Curiosity Ultra | The CK without TrustZone; the far end for `can_ping`/`can_echo`. |
+| PIC32CM PL10 Curiosity Nano (EV10P22A) | The PL10 examples. |
+
+# Connections
+
+- **USB to the host:** each Curiosity Ultra's PKoB4 debug port (flashing
+  and the VCOM log), the PL10's nEDBG. A CK board's J203 only
+  while running `usb_echo`, and the SG01's J202 (USB-C, high speed) while
+  running `usbhs_echo`, by an A-to-C or a C-to-C cable: the CC switches'
+  control (USB0_DRD, PA12) is pulled low, which leaves 5.1k on CC, so a
+  USB-C host sees a device and turns VBUS on. On a Linux host (for the
+  suspend tests), `tools/udev/70-pic32c-hal-usbhs.rules` in
+  `/etc/udev/rules.d/` gives 1209:000B's tty to plugdev and lets it
+  autosuspend after 2 s and wake the host. Keep anything that back-powers
+  a hub off the boards' hubs, or give it a VBUS-blocking cable: a device on
+  external power that fed VBUS back made a hub reset itself and drop
+  high-speed devices; without it the same hub passes the HS tests.
+- **Ethernet:** both CK boards' RJ45 to the bench switch, for `eth_ping`,
+  `eth_http` and `eth_https`.
+- **CAN:** SG01 J704 to GC01 J704, pin to pin (1 CANL, 2 GND, 3 CANH), with
+  SW700 termination on at both ends. J705 is CAN1, not CAN0.
+- **UART:** the SG01's EXT2 header (J501) to the GC01's, crossed: TX pin 16
+  (PC15) to the other's RX pin 18 (PC16) and RTS pin 17 (PC17) to the
+  other's CTS pin 6 (PC18), both ways, and GND. The SG01 runs `uart_peer`,
+  the GC01 the example under test; start `uart_peer` first. Keep both
+  boards powered while wired, so neither back-feeds the other through the
+  UART pins.
+- **The SG01's mikroBUS socket stays empty, and `spi` needs its EXT2
+  unwired:** PC15-PC17 are both EXT2's UART and the mikroBUS SPI, and `spi`
+  needs nothing on them for its loopback. So unplug the UART link from the
+  SG01's EXT2 while `spi` runs there. `i2c` uses the on-board EEPROM.
+- **Click boards,** in a CK board's mikroBUS socket only while their program
+  runs: a MikroElektronika TempHum 15 Click (SHT40) for `moff` and `i2c`, a
+  Weather Click (BME280, in its I2C setting) for `i2c`, and an ETH WIZ
+  Click (W5500) for `w5500`. The ETH WIZ
+  Click's SPI pins are PC15-PC17, so unplug the UART link from that board
+  while it's in; its RST (PD21) also resets the on-board Ethernet PHY.
+- **PL10:** PA04 jumpered to PA05, for `uart_bridge`.
+
+# Flashing
+
+- Both families with pyOCD and Microchip's packs (`Microchip.PIC32CK-SG_DFP`
+  and `-GC_DFP`, `Microchip.PIC32CM-PL_DFP`); the PL10 at 100 kHz.
+- Never probe-rs to flash or reset the PL10: it can't reset this family,
+  and older versions wedge the nEDBG.
+- On the CK boards, erase the first boot-flash sector before loading, and
+  back up BFM, PFM and CFM before the first flash of a new board.

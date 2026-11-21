@@ -1,0 +1,696 @@
+#[doc = "Register `LUTCTRL[%s]` reader"]
+pub type R = crate::R<LutctrlSpec>;
+#[doc = "Register `LUTCTRL[%s]` writer"]
+pub type W = crate::W<LutctrlSpec>;
+#[doc = "Filter Selection\n\nValue on reset: 0"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Filtselselect {
+    #[doc = "0: Filter disabled"]
+    Disable = 0,
+    #[doc = "1: Synchronizer enabled"]
+    Synch = 1,
+    #[doc = "2: Filter enabled"]
+    Filter = 2,
+}
+impl From<Filtselselect> for u8 {
+    #[inline(always)]
+    fn from(variant: Filtselselect) -> Self {
+        variant as _
+    }
+}
+impl crate::FieldSpec for Filtselselect {
+    type Ux = u8;
+}
+impl crate::IsEnum for Filtselselect {}
+#[doc = "Field `FILTSEL` reader - Filter Selection"]
+pub type FiltselR = crate::FieldReader<Filtselselect>;
+impl FiltselR {
+    #[doc = "Get enumerated values variant"]
+    #[inline(always)]
+    pub const fn variant(&self) -> Option<Filtselselect> {
+        match self.bits {
+            0 => Some(Filtselselect::Disable),
+            1 => Some(Filtselselect::Synch),
+            2 => Some(Filtselselect::Filter),
+            _ => None,
+        }
+    }
+    #[doc = "Filter disabled"]
+    #[inline(always)]
+    pub fn is_disable(&self) -> bool {
+        *self == Filtselselect::Disable
+    }
+    #[doc = "Synchronizer enabled"]
+    #[inline(always)]
+    pub fn is_synch(&self) -> bool {
+        *self == Filtselselect::Synch
+    }
+    #[doc = "Filter enabled"]
+    #[inline(always)]
+    pub fn is_filter(&self) -> bool {
+        *self == Filtselselect::Filter
+    }
+}
+#[doc = "Field `FILTSEL` writer - Filter Selection"]
+pub type FiltselW<'a, REG> = crate::FieldWriter<'a, REG, 2, Filtselselect>;
+impl<'a, REG> FiltselW<'a, REG>
+where
+    REG: crate::Writable + crate::RegisterSpec,
+    REG::Ux: From<u8>,
+{
+    #[doc = "Filter disabled"]
+    #[inline(always)]
+    pub fn disable(self) -> &'a mut crate::W<REG> {
+        self.variant(Filtselselect::Disable)
+    }
+    #[doc = "Synchronizer enabled"]
+    #[inline(always)]
+    pub fn synch(self) -> &'a mut crate::W<REG> {
+        self.variant(Filtselselect::Synch)
+    }
+    #[doc = "Filter enabled"]
+    #[inline(always)]
+    pub fn filter(self) -> &'a mut crate::W<REG> {
+        self.variant(Filtselselect::Filter)
+    }
+}
+#[doc = "Field `EDGESEL` reader - Edge Selection"]
+pub type EdgeselR = crate::BitReader;
+#[doc = "Field `EDGESEL` writer - Edge Selection"]
+pub type EdgeselW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "LUT Input 0 Source Selection\n\nValue on reset: 0"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Insel0select {
+    #[doc = "0: Masked input"]
+    Mask = 0,
+    #[doc = "1: Feedback input source"]
+    Feedback = 1,
+    #[doc = "2: Linked LUT input source"]
+    Link = 2,
+    #[doc = "3: Event input source"]
+    Event = 3,
+    #[doc = "4: I/O pin input source"]
+    Io = 4,
+    #[doc = "5: AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    Ac = 5,
+    #[doc = "6: TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    Tc = 6,
+    #[doc = "8: TCC input source: TCC0"]
+    Tcc = 8,
+    #[doc = "9: SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    Sercom = 9,
+    #[doc = "11: Asynchronous event input source"]
+    Asyncevent = 11,
+}
+impl From<Insel0select> for u8 {
+    #[inline(always)]
+    fn from(variant: Insel0select) -> Self {
+        variant as _
+    }
+}
+impl crate::FieldSpec for Insel0select {
+    type Ux = u8;
+}
+impl crate::IsEnum for Insel0select {}
+#[doc = "Field `INSEL0` reader - LUT Input 0 Source Selection"]
+pub type Insel0R = crate::FieldReader<Insel0select>;
+impl Insel0R {
+    #[doc = "Get enumerated values variant"]
+    #[inline(always)]
+    pub const fn variant(&self) -> Option<Insel0select> {
+        match self.bits {
+            0 => Some(Insel0select::Mask),
+            1 => Some(Insel0select::Feedback),
+            2 => Some(Insel0select::Link),
+            3 => Some(Insel0select::Event),
+            4 => Some(Insel0select::Io),
+            5 => Some(Insel0select::Ac),
+            6 => Some(Insel0select::Tc),
+            8 => Some(Insel0select::Tcc),
+            9 => Some(Insel0select::Sercom),
+            11 => Some(Insel0select::Asyncevent),
+            _ => None,
+        }
+    }
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn is_mask(&self) -> bool {
+        *self == Insel0select::Mask
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn is_feedback(&self) -> bool {
+        *self == Insel0select::Feedback
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn is_link(&self) -> bool {
+        *self == Insel0select::Link
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn is_event(&self) -> bool {
+        *self == Insel0select::Event
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn is_io(&self) -> bool {
+        *self == Insel0select::Io
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn is_ac(&self) -> bool {
+        *self == Insel0select::Ac
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn is_tc(&self) -> bool {
+        *self == Insel0select::Tc
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn is_tcc(&self) -> bool {
+        *self == Insel0select::Tcc
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn is_sercom(&self) -> bool {
+        *self == Insel0select::Sercom
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn is_asyncevent(&self) -> bool {
+        *self == Insel0select::Asyncevent
+    }
+}
+#[doc = "Field `INSEL0` writer - LUT Input 0 Source Selection"]
+pub type Insel0W<'a, REG> = crate::FieldWriter<'a, REG, 4, Insel0select>;
+impl<'a, REG> Insel0W<'a, REG>
+where
+    REG: crate::Writable + crate::RegisterSpec,
+    REG::Ux: From<u8>,
+{
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn mask(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Mask)
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn feedback(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Feedback)
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn link(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Link)
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn event(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Event)
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn io(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Io)
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn ac(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Ac)
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn tc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Tc)
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn tcc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Tcc)
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn sercom(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Sercom)
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn asyncevent(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel0select::Asyncevent)
+    }
+}
+#[doc = "LUT Input 1 Source Selection\n\nValue on reset: 0"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Insel1select {
+    #[doc = "0: Masked input"]
+    Mask = 0,
+    #[doc = "1: Feedback input source"]
+    Feedback = 1,
+    #[doc = "2: Linked LUT input source"]
+    Link = 2,
+    #[doc = "3: Event input source"]
+    Event = 3,
+    #[doc = "4: I/O pin input source"]
+    Io = 4,
+    #[doc = "5: AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    Ac = 5,
+    #[doc = "6: TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    Tc = 6,
+    #[doc = "8: TCC input source: TCC0"]
+    Tcc = 8,
+    #[doc = "9: SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    Sercom = 9,
+    #[doc = "11: Asynchronous event input source"]
+    Asyncevent = 11,
+}
+impl From<Insel1select> for u8 {
+    #[inline(always)]
+    fn from(variant: Insel1select) -> Self {
+        variant as _
+    }
+}
+impl crate::FieldSpec for Insel1select {
+    type Ux = u8;
+}
+impl crate::IsEnum for Insel1select {}
+#[doc = "Field `INSEL1` reader - LUT Input 1 Source Selection"]
+pub type Insel1R = crate::FieldReader<Insel1select>;
+impl Insel1R {
+    #[doc = "Get enumerated values variant"]
+    #[inline(always)]
+    pub const fn variant(&self) -> Option<Insel1select> {
+        match self.bits {
+            0 => Some(Insel1select::Mask),
+            1 => Some(Insel1select::Feedback),
+            2 => Some(Insel1select::Link),
+            3 => Some(Insel1select::Event),
+            4 => Some(Insel1select::Io),
+            5 => Some(Insel1select::Ac),
+            6 => Some(Insel1select::Tc),
+            8 => Some(Insel1select::Tcc),
+            9 => Some(Insel1select::Sercom),
+            11 => Some(Insel1select::Asyncevent),
+            _ => None,
+        }
+    }
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn is_mask(&self) -> bool {
+        *self == Insel1select::Mask
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn is_feedback(&self) -> bool {
+        *self == Insel1select::Feedback
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn is_link(&self) -> bool {
+        *self == Insel1select::Link
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn is_event(&self) -> bool {
+        *self == Insel1select::Event
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn is_io(&self) -> bool {
+        *self == Insel1select::Io
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn is_ac(&self) -> bool {
+        *self == Insel1select::Ac
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn is_tc(&self) -> bool {
+        *self == Insel1select::Tc
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn is_tcc(&self) -> bool {
+        *self == Insel1select::Tcc
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn is_sercom(&self) -> bool {
+        *self == Insel1select::Sercom
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn is_asyncevent(&self) -> bool {
+        *self == Insel1select::Asyncevent
+    }
+}
+#[doc = "Field `INSEL1` writer - LUT Input 1 Source Selection"]
+pub type Insel1W<'a, REG> = crate::FieldWriter<'a, REG, 4, Insel1select>;
+impl<'a, REG> Insel1W<'a, REG>
+where
+    REG: crate::Writable + crate::RegisterSpec,
+    REG::Ux: From<u8>,
+{
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn mask(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Mask)
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn feedback(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Feedback)
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn link(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Link)
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn event(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Event)
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn io(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Io)
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn ac(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Ac)
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn tc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Tc)
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn tcc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Tcc)
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn sercom(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Sercom)
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn asyncevent(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel1select::Asyncevent)
+    }
+}
+#[doc = "LUT Input 2 Source Selection\n\nValue on reset: 0"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Insel2select {
+    #[doc = "0: Masked input"]
+    Mask = 0,
+    #[doc = "1: Feedback input source"]
+    Feedback = 1,
+    #[doc = "2: Linked LUT input source"]
+    Link = 2,
+    #[doc = "3: Event input source"]
+    Event = 3,
+    #[doc = "4: I/O pin input source"]
+    Io = 4,
+    #[doc = "5: AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    Ac = 5,
+    #[doc = "6: TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    Tc = 6,
+    #[doc = "8: TCC input source: TCC0"]
+    Tcc = 8,
+    #[doc = "9: SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    Sercom = 9,
+    #[doc = "11: Asynchronous event input source"]
+    Asyncevent = 11,
+}
+impl From<Insel2select> for u8 {
+    #[inline(always)]
+    fn from(variant: Insel2select) -> Self {
+        variant as _
+    }
+}
+impl crate::FieldSpec for Insel2select {
+    type Ux = u8;
+}
+impl crate::IsEnum for Insel2select {}
+#[doc = "Field `INSEL2` reader - LUT Input 2 Source Selection"]
+pub type Insel2R = crate::FieldReader<Insel2select>;
+impl Insel2R {
+    #[doc = "Get enumerated values variant"]
+    #[inline(always)]
+    pub const fn variant(&self) -> Option<Insel2select> {
+        match self.bits {
+            0 => Some(Insel2select::Mask),
+            1 => Some(Insel2select::Feedback),
+            2 => Some(Insel2select::Link),
+            3 => Some(Insel2select::Event),
+            4 => Some(Insel2select::Io),
+            5 => Some(Insel2select::Ac),
+            6 => Some(Insel2select::Tc),
+            8 => Some(Insel2select::Tcc),
+            9 => Some(Insel2select::Sercom),
+            11 => Some(Insel2select::Asyncevent),
+            _ => None,
+        }
+    }
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn is_mask(&self) -> bool {
+        *self == Insel2select::Mask
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn is_feedback(&self) -> bool {
+        *self == Insel2select::Feedback
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn is_link(&self) -> bool {
+        *self == Insel2select::Link
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn is_event(&self) -> bool {
+        *self == Insel2select::Event
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn is_io(&self) -> bool {
+        *self == Insel2select::Io
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn is_ac(&self) -> bool {
+        *self == Insel2select::Ac
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn is_tc(&self) -> bool {
+        *self == Insel2select::Tc
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn is_tcc(&self) -> bool {
+        *self == Insel2select::Tcc
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn is_sercom(&self) -> bool {
+        *self == Insel2select::Sercom
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn is_asyncevent(&self) -> bool {
+        *self == Insel2select::Asyncevent
+    }
+}
+#[doc = "Field `INSEL2` writer - LUT Input 2 Source Selection"]
+pub type Insel2W<'a, REG> = crate::FieldWriter<'a, REG, 4, Insel2select>;
+impl<'a, REG> Insel2W<'a, REG>
+where
+    REG: crate::Writable + crate::RegisterSpec,
+    REG::Ux: From<u8>,
+{
+    #[doc = "Masked input"]
+    #[inline(always)]
+    pub fn mask(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Mask)
+    }
+    #[doc = "Feedback input source"]
+    #[inline(always)]
+    pub fn feedback(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Feedback)
+    }
+    #[doc = "Linked LUT input source"]
+    #[inline(always)]
+    pub fn link(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Link)
+    }
+    #[doc = "Event input source"]
+    #[inline(always)]
+    pub fn event(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Event)
+    }
+    #[doc = "I/O pin input source"]
+    #[inline(always)]
+    pub fn io(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Io)
+    }
+    #[doc = "AC input source: CMP\\[0\\] (LUT0) / CMP\\[1\\] (LUT1) / CMP\\[0\\] (LUT2) / CMP\\[1\\] (LUT3)"]
+    #[inline(always)]
+    pub fn ac(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Ac)
+    }
+    #[doc = "TC input source: TC0 (LUT0) / TC1 (LUT1) / TC2 (LUT2) / TC0 (LUT3)"]
+    #[inline(always)]
+    pub fn tc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Tc)
+    }
+    #[doc = "TCC input source: TCC0"]
+    #[inline(always)]
+    pub fn tcc(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Tcc)
+    }
+    #[doc = "SERCOM input source: SERCOM0 (LUT0) / SERCOM1 (LUT1) / SERCOM0 (LUT2) / SERCOM1 (LUT3)"]
+    #[inline(always)]
+    pub fn sercom(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Sercom)
+    }
+    #[doc = "Asynchronous event input source"]
+    #[inline(always)]
+    pub fn asyncevent(self) -> &'a mut crate::W<REG> {
+        self.variant(Insel2select::Asyncevent)
+    }
+}
+#[doc = "Field `LUTINV` reader - LUT Inverted Event Input Enable"]
+pub type LutinvR = crate::BitReader;
+#[doc = "Field `LUTINV` writer - LUT Inverted Event Input Enable"]
+pub type LutinvW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `LUTEI` reader - LUT Event Input Enable"]
+pub type LuteiR = crate::BitReader;
+#[doc = "Field `LUTEI` writer - LUT Event Input Enable"]
+pub type LuteiW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `LUTEO` reader - LUT Event Output Enable"]
+pub type LuteoR = crate::BitReader;
+#[doc = "Field `LUTEO` writer - LUT Event Output Enable"]
+pub type LuteoW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `TRUTH` reader - Truth Table"]
+pub type TruthR = crate::FieldReader;
+#[doc = "Field `TRUTH` writer - Truth Table"]
+pub type TruthW<'a, REG> = crate::FieldWriter<'a, REG, 8>;
+impl R {
+    #[doc = "Bits 4:5 - Filter Selection"]
+    #[inline(always)]
+    pub fn filtsel(&self) -> FiltselR {
+        FiltselR::new(((self.bits >> 4) & 3) as u8)
+    }
+    #[doc = "Bit 7 - Edge Selection"]
+    #[inline(always)]
+    pub fn edgesel(&self) -> EdgeselR {
+        EdgeselR::new(((self.bits >> 7) & 1) != 0)
+    }
+    #[doc = "Bits 8:11 - LUT Input 0 Source Selection"]
+    #[inline(always)]
+    pub fn insel0(&self) -> Insel0R {
+        Insel0R::new(((self.bits >> 8) & 0x0f) as u8)
+    }
+    #[doc = "Bits 12:15 - LUT Input 1 Source Selection"]
+    #[inline(always)]
+    pub fn insel1(&self) -> Insel1R {
+        Insel1R::new(((self.bits >> 12) & 0x0f) as u8)
+    }
+    #[doc = "Bits 16:19 - LUT Input 2 Source Selection"]
+    #[inline(always)]
+    pub fn insel2(&self) -> Insel2R {
+        Insel2R::new(((self.bits >> 16) & 0x0f) as u8)
+    }
+    #[doc = "Bit 20 - LUT Inverted Event Input Enable"]
+    #[inline(always)]
+    pub fn lutinv(&self) -> LutinvR {
+        LutinvR::new(((self.bits >> 20) & 1) != 0)
+    }
+    #[doc = "Bit 21 - LUT Event Input Enable"]
+    #[inline(always)]
+    pub fn lutei(&self) -> LuteiR {
+        LuteiR::new(((self.bits >> 21) & 1) != 0)
+    }
+    #[doc = "Bit 22 - LUT Event Output Enable"]
+    #[inline(always)]
+    pub fn luteo(&self) -> LuteoR {
+        LuteoR::new(((self.bits >> 22) & 1) != 0)
+    }
+    #[doc = "Bits 24:31 - Truth Table"]
+    #[inline(always)]
+    pub fn truth(&self) -> TruthR {
+        TruthR::new(((self.bits >> 24) & 0xff) as u8)
+    }
+}
+impl W {
+    #[doc = "Bits 4:5 - Filter Selection"]
+    #[inline(always)]
+    pub fn filtsel(&mut self) -> FiltselW<'_, LutctrlSpec> {
+        FiltselW::new(self, 4)
+    }
+    #[doc = "Bit 7 - Edge Selection"]
+    #[inline(always)]
+    pub fn edgesel(&mut self) -> EdgeselW<'_, LutctrlSpec> {
+        EdgeselW::new(self, 7)
+    }
+    #[doc = "Bits 8:11 - LUT Input 0 Source Selection"]
+    #[inline(always)]
+    pub fn insel0(&mut self) -> Insel0W<'_, LutctrlSpec> {
+        Insel0W::new(self, 8)
+    }
+    #[doc = "Bits 12:15 - LUT Input 1 Source Selection"]
+    #[inline(always)]
+    pub fn insel1(&mut self) -> Insel1W<'_, LutctrlSpec> {
+        Insel1W::new(self, 12)
+    }
+    #[doc = "Bits 16:19 - LUT Input 2 Source Selection"]
+    #[inline(always)]
+    pub fn insel2(&mut self) -> Insel2W<'_, LutctrlSpec> {
+        Insel2W::new(self, 16)
+    }
+    #[doc = "Bit 20 - LUT Inverted Event Input Enable"]
+    #[inline(always)]
+    pub fn lutinv(&mut self) -> LutinvW<'_, LutctrlSpec> {
+        LutinvW::new(self, 20)
+    }
+    #[doc = "Bit 21 - LUT Event Input Enable"]
+    #[inline(always)]
+    pub fn lutei(&mut self) -> LuteiW<'_, LutctrlSpec> {
+        LuteiW::new(self, 21)
+    }
+    #[doc = "Bit 22 - LUT Event Output Enable"]
+    #[inline(always)]
+    pub fn luteo(&mut self) -> LuteoW<'_, LutctrlSpec> {
+        LuteoW::new(self, 22)
+    }
+    #[doc = "Bits 24:31 - Truth Table"]
+    #[inline(always)]
+    pub fn truth(&mut self) -> TruthW<'_, LutctrlSpec> {
+        TruthW::new(self, 24)
+    }
+}
+#[doc = "LUT Control #\n\nYou can [`read`](crate::Reg::read) this register and get [`lutctrl::R`](R). You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`lutctrl::W`](W). You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api)."]
+pub struct LutctrlSpec;
+impl crate::RegisterSpec for LutctrlSpec {
+    type Ux = u32;
+}
+#[doc = "`read()` method returns [`lutctrl::R`](R) reader structure"]
+impl crate::Readable for LutctrlSpec {}
+#[doc = "`write(|w| ..)` method takes [`lutctrl::W`](W) writer structure"]
+impl crate::Writable for LutctrlSpec {
+    type Safety = crate::Unsafe;
+}
+#[doc = "`reset()` method sets LUTCTRL[%s] to value 0"]
+impl crate::Resettable for LutctrlSpec {}
