@@ -10,7 +10,7 @@ its example is being tested.
 | Board | Why |
 |---|---|
 | PIC32CK SG01 Curiosity Ultra (EV33A17A) | The main CK board: TrustZone (the `PORT_SEC` view), the HSM; `uart_peer`, the far end for the UART examples. |
-| PIC32CK GC01 Curiosity Ultra | The CK without TrustZone; the far end for `can_ping`/`can_echo`. |
+| PIC32CK GC01 Curiosity Ultra (EV44P93A) | The CK without TrustZone; the far end for `can_ping`/`can_echo`. |
 | PIC32CM PL10 Curiosity Nano (EV10P22A) | The PL10 examples. |
 
 # Connections
