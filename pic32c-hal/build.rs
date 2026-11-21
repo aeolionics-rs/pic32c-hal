@@ -14,16 +14,23 @@
 //! - `pic32cm_pl`: the PIC32CM PL10 (Cortex-M0+). `sercom_v1` (no FIFO,
 //!   16-bit DATA, one interrupt line per SERCOM, bus clocks off at reset),
 //!   `port_v1` (no open drain, 1-bit slew).
+//! - `pic32cm_sg`: the PIC32CM SG00 (Cortex-M23). The PIC32CK's
+//!   `sercom_v6`, `port_v4`, `wdt_v2` and `mcan` (its `M_CAN` is 3.3.0, in a
+//!   wrapper), and so far nothing else: its DMAC (the SAM D5x kind) and
+//!   flash controller differ from the CK's, and the other modules whose IP
+//!   it shares wait to be checked on it.
 //!
 //! With feature `time-driver`, it also sets `time_driver` to the counter the
 //! time driver takes: the one a `time-driver-*` feature names, else the
-//! chip's usual one (`tcc0` on the PIC32CK, `tc0_tc1` on the PL10).
+//! chip's usual one (`tcc0` on the PIC32CK and the SG00, `tc0_tc1` on the
+//! PL10).
 
 use std::env;
 
 const ALL: &[&str] = &[
     "pic32ck",
     "pic32cm_pl",
+    "pic32cm_sg",
     "sercom_v6",
     "sercom_v1",
     "port_v4",
@@ -46,10 +53,13 @@ const ALL: &[&str] = &[
 /// usual one; each is feature `time-driver-<name>` with `_` as `-`.
 const PIC32CK_TIMERS: &[&str] = &["tcc0", "tcc1", "tcc2", "tcc3", "tcc4", "tcc5", "tcc6", "tcc7"];
 const PIC32CM_PL_TIMERS: &[&str] = &["tc0_tc1", "tc0", "tc1", "tc2"];
+const PIC32CM_SG_TIMERS: &[&str] = &["tcc0", "tcc1", "tcc2", "tcc3", "tcc4", "tcc5", "tcc6"];
 
 const PIC32CK: &[&str] = &["pic32ck", "sercom_v6", "port_v4", "dma_axi", "adc_msh", "rtc_v3", "wdt_v2", "eic_v1", "cmcc", "fcw", "trng", "mcan", "gmac", "usb_fs", "usb_hs"];
 
 const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1"];
+
+const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "wdt_v2", "mcan"];
 
 fn main() {
     for cfg in ALL {
@@ -62,6 +72,8 @@ fn main() {
         (PIC32CK, PIC32CK_TIMERS)
     } else if feature("pic32cm6408pl10048") {
         (PIC32CM_PL, PIC32CM_PL_TIMERS)
+    } else if feature("pic32cm5112sg00100") {
+        (PIC32CM_SG, PIC32CM_SG_TIMERS)
     } else {
         (&[], &[])
     };

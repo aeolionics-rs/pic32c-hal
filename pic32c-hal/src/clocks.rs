@@ -2,23 +2,31 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The clock tree (DS60001795 chapters 19, OSCCTRL, and 20, GCLK): the
-//! crystal oscillator (XOSC), PLL0, and the twelve generic clock generators
-//! that feed the CPU (generator 0) and the peripherals' channels.
+//! The clock tree (DS60001795 chapters 19, OSCCTRL, and 20, GCLK; on the
+//! PIC32CM SG00, DS60001921 chapters 21 and 22, the same IP): the crystal
+//! oscillator (XOSC), PLL0, and the twelve generic clock generators that
+//! feed the CPU (generator 0) and the peripherals' channels.
 //!
 //! [`crate::init`] applies a [`Config`], checked first by
 //! [`Config::frequencies`], then records the [`Frequencies`] for drivers
 //! ([`frequencies`]). It sets the flash wait states for the CPU's rate
-//! itself (one per 20 MHz, with the address wait state over 60 MHz;
-//! table 52-44).
+//! itself: on the PIC32CK one per 20 MHz, with the address wait state over
+//! 60 MHz (table 52-44); on the SG00 one per 24 MHz (table 48-41).
 //!
 //! Out of reset the CPU runs from the DFLL48M, open loop (about 48 MHz, not
 //! trimmed to anything: use the crystal for anything timed), through
 //! generator 0; XOSC and PLL0 are off and generators 1 to 11 disabled.
 //! OSCCTRL, GCLK, MCLK and FCR have no Secure alias on the SG parts.
 //!
-//! The high-speed USB PHY's PLL takes the XOSC directly, not a generator:
-//! with a 12 or 24 MHz XOSC, `init` also passes it on to the PHY
+//! The two chips' PLL0s differ in their outputs: the PIC32CK's output 0 is
+//! a fractional divider, which this module doesn't offer, and its integer
+//! outputs are 1 to 5; the SG00's five outputs, 0 to 4, are all integer
+//! dividers. [`PLL_OUTPUTS`] is the first one's number. The SG00's PLL also
+//! needs the additional voltage regulator (SUPC VREGCTRL.AVREGEN), which
+//! `init` turns on first.
+//!
+//! The PIC32CK's high-speed USB PHY's PLL takes the XOSC directly, not a
+//! generator: with a 12 or 24 MHz XOSC, `init` also passes it on to the PHY
 //! (XOSCCTRLA.USBHSDIV 1, which only changes while the XOSC is off), and
 //! [`usbhs_reference_hz`] says so.
 
@@ -27,7 +35,10 @@ use core::ptr::{read_volatile, write_volatile};
 
 use critical_section::Mutex;
 
+#[cfg(pic32ck)]
 const OSCCTRL: usize = 0x4400_C000;
+#[cfg(pic32cm_sg)]
+const OSCCTRL: usize = 0x4400_6000;
 const OSCCTRL_INTFLAG: usize = OSCCTRL + 0x0C;
 const OSCCTRL_STATUS: usize = OSCCTRL + 0x10;
 const OSCCTRL_XOSCCTRLA: usize = OSCCTRL + 0x14;
@@ -38,12 +49,25 @@ const OSCCTRL_PLL0REFDIV: usize = OSCCTRL + 0x48;
 const OSCCTRL_PLL0POSTDIVA: usize = OSCCTRL + 0x4C;
 const OSCCTRL_PLL0POSTDIVB: usize = OSCCTRL + 0x50;
 
+#[cfg(pic32ck)]
 const GCLK: usize = 0x4401_0000;
+#[cfg(pic32cm_sg)]
+const GCLK: usize = 0x4400_8000;
 const GCLK_SYNCBUSY: usize = GCLK + 0x04;
 const GCLK_GENCTRL: usize = GCLK + 0x20;
 const GCLK_PCHCTRL: usize = GCLK + 0x80;
 
 const FCR_CTRLA: usize = 0x4400_2000;
+
+/// SUPC: the additional regulator the SG00's PLL needs.
+#[cfg(pic32cm_sg)]
+const SUPC_STATUS: usize = 0x4500_200C;
+#[cfg(pic32cm_sg)]
+const SUPC_VREGCTRL: usize = 0x4500_201C;
+#[cfg(pic32cm_sg)]
+const VREGCTRL_AVREGEN: u32 = 1 << 16;
+#[cfg(pic32cm_sg)]
+const STATUS_ADDVREGRDY0: u32 = 1 << 8;
 
 const XOSC_ENABLE: u32 = 1 << 1;
 const XOSC_AGC: u32 = 1 << 2;
@@ -54,6 +78,7 @@ const XOSC_STARTUP: u32 = 0x8 << 8;
 const XOSC_GRES: u32 = 1 << 2;
 const XOSC_READY: u32 = 1 << 0;
 /// XOSCCTRLA.USBHSDIV 1: the XOSC, undivided, to the USBHS PHY's PLL.
+#[cfg(usb_hs)]
 const XOSC_USBHSDIV1: u32 = 1 << 24;
 const PLL_ENABLE: u32 = 1 << 1;
 const PLL_REFSEL_SHIFT: u32 = 8;
@@ -64,6 +89,7 @@ const GENEN: u32 = 1 << 8;
 const IDC: u32 = 1 << 9;
 const DIV_SHIFT: u32 = 16;
 const CHEN: u32 = 1 << 6;
+#[cfg(pic32ck)]
 const FCR_ADRWS: u32 = 1 << 14;
 const FCR_FWS_SHIFT: u32 = 8;
 
@@ -74,13 +100,26 @@ pub const OSCULP32K_HZ: u32 = 32_768;
 /// The generic clock generators.
 pub const GENERATORS: usize = 12;
 /// The CPU's highest rate (at -40 to +85 °C; table 52-44).
+#[cfg(pic32ck)]
 pub const CPU_MAX_HZ: u32 = 120_000_000;
+/// The CPU's highest rate (DS60001921 table 48-41's 72 MHz with two wait
+/// states).
+#[cfg(pic32cm_sg)]
+pub const CPU_MAX_HZ: u32 = 72_000_000;
+/// PLL0's integer outputs: the first one's number (1 on the PIC32CK, whose
+/// output 0 is the fractional one; 0 on the SG00). [`Pll0::outputs`] and
+/// [`Source::Pll0`] count from it.
+#[cfg(pic32ck)]
+pub const PLL_OUTPUTS: u8 = 1;
+/// See the PIC32CK's.
+#[cfg(pic32cm_sg)]
+pub const PLL_OUTPUTS: u8 = 0;
 
 /// The crystal oscillator's input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Xosc {
-    /// A crystal on XIN/XOUT (PD00/PD01), at this rate, with automatic gain
-    /// control.
+    /// A crystal on XIN/XOUT (PD00/PD01 on the PIC32CK, PD05/PD04 on the
+    /// SG00), at this rate, with automatic gain control.
     Crystal(u32),
     /// An external clock on XIN, at this rate.
     External(u32),
@@ -103,8 +142,9 @@ pub enum PllReference {
 
 /// PLL0: reference / `refdiv` to the phase detector (4 to 48 MHz), times
 /// `fbdiv` to the VCO (800 to 1,600 MHz), divided by each output's divider
-/// (1 to 63). `outputs[i]` is output `i + 1`'s divider, or `None` for off;
-/// output 0, the fractional divider's, isn't offered.
+/// (1 to 63). `outputs[i]` is output `PLL_OUTPUTS + i`'s divider (output
+/// `i + 1` on the PIC32CK, whose fractional output 0 isn't offered; output
+/// `i` on the SG00), or `None` for off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pll0 {
     pub reference: PllReference,
@@ -119,7 +159,7 @@ pub enum Source {
     Xosc,
     Osculp32k,
     Dfll48m,
-    /// PLL0's output 1 to 5.
+    /// PLL0's output 1 to 5 (on the SG00, 0 to 4: [`PLL_OUTPUTS`]).
     Pll0(u8),
 }
 
@@ -186,6 +226,9 @@ pub enum Error {
     XoscTimeout,
     /// PLL0 never locked.
     PllTimeout,
+    /// The additional regulator the SG00's PLL needs never reported ready.
+    #[cfg(pic32cm_sg)]
+    RegulatorTimeout,
     /// A generator never synchronised.
     GeneratorTimeout(usize),
 }
@@ -195,7 +238,8 @@ pub enum Error {
 pub struct Frequencies {
     pub xosc: Option<u32>,
     pub pll0_vco: Option<u32>,
-    /// PLL0's outputs 1 to 5.
+    /// PLL0's outputs, from [`PLL_OUTPUTS`] (1 to 5 on the PIC32CK, 0 to 4
+    /// on the SG00).
     pub pll0: [Option<u32>; 5],
     pub generators: [Option<u32>; GENERATORS],
 }
@@ -234,14 +278,10 @@ impl Config {
     ///
     /// If `xosc`'s rate doesn't divide 960 MHz, or is outside 4 to 48 MHz
     /// (at compile time, in a `const`).
+    #[cfg(pic32ck)]
     #[must_use]
     pub const fn pll_from_xosc(xosc: Xosc) -> Self {
-        const VCO: u32 = 960_000_000;
-        let hz = xosc.hz();
-        assert!(hz >= 4_000_000 && hz <= 48_000_000 && VCO.is_multiple_of(hz), "the XOSC's rate must divide 960 MHz");
-        let refdiv: u8 = if hz > 45_000_000 { 2 } else { 1 };
-        #[expect(clippy::cast_possible_truncation, reason = "at most 240, from the assert")]
-        let fbdiv = (VCO / hz * refdiv as u32) as u16;
+        let (refdiv, fbdiv) = pll_dividers(xosc, 960_000_000);
         let mut generators = [None; GENERATORS];
         generators[0] = Some(Generator::new(Source::Pll0(2)));
         generators[2] = Some(Generator::new(Source::Pll0(3)));
@@ -250,6 +290,38 @@ impl Config {
         Self {
             xosc: Some(xosc),
             pll0: Some(Pll0 { reference: PllReference::Xosc, refdiv, fbdiv, outputs: [None, Some(8), Some(12), Some(20), None] }),
+            generators,
+        }
+    }
+
+    /// `xosc` (an 8, 12, 16, 20, 24, 40 or 48 MHz crystal or clock: one
+    /// whose multiple is 1,440 MHz; over 45 MHz it's halved first) through
+    /// PLL0 to a 1,440 MHz VCO, and:
+    /// - generator 0, the CPU: 72 MHz (output 0, / 20);
+    /// - generator 2: 40 MHz (output 1, / 36), for CAN (whose clock may
+    ///   not be faster than the bus's 72 MHz, DS60001921 37.5.6);
+    /// - generator 3: 48 MHz (output 2, / 30), for USB and the SERCOMs;
+    /// - generator 4: 16 MHz (generator 3's source / 3), for the time
+    ///   driver.
+    ///
+    /// The same generators as the PIC32CK's preset, at the SG00's rates.
+    ///
+    /// # Panics
+    ///
+    /// If `xosc`'s rate doesn't divide 1,440 MHz, or is outside 4 to 48 MHz
+    /// (at compile time, in a `const`).
+    #[cfg(pic32cm_sg)]
+    #[must_use]
+    pub const fn pll_from_xosc(xosc: Xosc) -> Self {
+        let (refdiv, fbdiv) = pll_dividers(xosc, 1_440_000_000);
+        let mut generators = [None; GENERATORS];
+        generators[0] = Some(Generator::new(Source::Pll0(0)));
+        generators[2] = Some(Generator::new(Source::Pll0(1)));
+        generators[3] = Some(Generator::new(Source::Pll0(2)));
+        generators[4] = Some(Generator::divided(Source::Pll0(2), 3));
+        Self {
+            xosc: Some(xosc),
+            pll0: Some(Pll0 { reference: PllReference::Xosc, refdiv, fbdiv, outputs: [Some(20), Some(36), Some(30), None, None] }),
             generators,
         }
     }
@@ -300,8 +372,7 @@ impl Config {
                 Source::Xosc => xosc,
                 Source::Osculp32k => Some(OSCULP32K_HZ),
                 Source::Dfll48m => Some(DFLL48M_HZ),
-                Source::Pll0(output @ 1..=5) => pll0[usize::from(output) - 1],
-                Source::Pll0(_) => None,
+                Source::Pll0(output) => output.checked_sub(PLL_OUTPUTS).and_then(|i| pll0.get(usize::from(i)).copied().flatten()),
             };
             let source = source.ok_or(Error::GeneratorSource(n))?;
             if generator.divide == 0 {
@@ -324,11 +395,33 @@ impl Default for Config {
     }
 }
 
+/// REFDIV and FBDIV taking `xosc` to `vco`: REFDIV 2 over 45 MHz, else 1.
+///
+/// # Panics
+///
+/// If `xosc`'s rate doesn't divide `vco`, or is outside 4 to 48 MHz.
+const fn pll_dividers(xosc: Xosc, vco: u32) -> (u8, u16) {
+    let hz = xosc.hz();
+    assert!(hz >= 4_000_000 && hz <= 48_000_000 && vco.is_multiple_of(hz), "the XOSC's rate must divide the preset's VCO");
+    let refdiv: u8 = if hz > 45_000_000 { 2 } else { 1 };
+    #[expect(clippy::cast_possible_truncation, reason = "at most 360, from the assert")]
+    let fbdiv = (vco / hz * refdiv as u32) as u16;
+    (refdiv, fbdiv)
+}
+
 /// Flash wait states (FCR.CTRLA, AUTOWS off) for a CPU rate: one per 20 MHz
 /// over the first, and the address wait state with three or more.
+#[cfg(pic32ck)]
 fn flash_wait_states(cpu_hz: u32) -> u32 {
     let fws = cpu_hz.saturating_sub(1) / 20_000_000;
     (fws << FCR_FWS_SHIFT) | if fws >= 3 { FCR_ADRWS } else { 0 }
+}
+
+/// Flash wait states (FCR.CTRLA, AUTOWS off) for a CPU rate: one per 24 MHz
+/// over the first (DS60001921 table 48-41), no address wait state.
+#[cfg(pic32cm_sg)]
+fn flash_wait_states(cpu_hz: u32) -> u32 {
+    (cpu_hz.saturating_sub(1) / 24_000_000) << FCR_FWS_SHIFT
 }
 
 static FREQUENCIES: Mutex<Cell<Option<Frequencies>>> = Mutex::new(Cell::new(None));
@@ -341,12 +434,14 @@ pub fn frequencies() -> Option<Frequencies> {
 
 /// Whether an XOSC of `hz` can be the USBHS PHY's reference: it takes
 /// 12 or 24 MHz (DS60001795 37.2, note 2; CTRLA.REFCLKSEL).
+#[cfg(usb_hs)]
 const fn usbhs_reference(hz: u32) -> bool {
     hz == 12_000_000 || hz == 24_000_000
 }
 
 /// The rate [`crate::init`] passes the USBHS PHY's PLL from the XOSC (12 or
 /// 24 MHz), or `None` if the XOSC is off or at another rate.
+#[cfg(usb_hs)]
 #[must_use]
 pub fn usbhs_reference_hz() -> Option<u32> {
     frequencies().and_then(|f| f.xosc).filter(|&hz| usbhs_reference(hz))
@@ -431,6 +526,7 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
             }
             Xosc::External(_) => XOSC_STARTUP,
         };
+        #[cfg(usb_hs)]
         let control = control | if usbhs_reference(xosc.hz()) { XOSC_USBHSDIV1 } else { 0 };
         write(OSCCTRL_XOSCCTRLA, 0);
         write(OSCCTRL_XOSCCTRLA, control);
@@ -441,6 +537,15 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
     }
 
     if let Some(pll) = config.pll0 {
+        // The SG00's PLL runs from the additional regulator (as Zephyr's
+        // clock driver for the part does it).
+        #[cfg(pic32cm_sg)]
+        {
+            write(SUPC_VREGCTRL, read(SUPC_VREGCTRL) | VREGCTRL_AVREGEN);
+            if !wait(1_000_000, || read(SUPC_STATUS) & STATUS_ADDVREGRDY0 != 0) {
+                return Err(Error::RegulatorTimeout);
+            }
+        }
         let refsel = match pll.reference {
             PllReference::Xosc => 1,
             PllReference::Dfll48m => 2,
@@ -461,12 +566,21 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
         write(OSCCTRL_PLL0CTRL, control);
         write(OSCCTRL_PLL0REFDIV, u32::from(pll.refdiv));
         write(OSCCTRL_PLL0FBDIV, u32::from(pll.fbdiv));
-        // One byte per output: the divider in bits 5:0, OUTEN in bit 7.
-        // Off outputs keep a legal divider.
-        let byte = |output: Option<u8>| output.map_or(0x20, |divider| u32::from(divider) | PLL_OUTEN);
-        let [o1, o2, o3, o4, o5] = pll.outputs;
-        write(OSCCTRL_PLL0POSTDIVA, 0x20 | (byte(o1) << 8) | (byte(o2) << 16) | (byte(o3) << 24));
-        write(OSCCTRL_PLL0POSTDIVB, byte(o4) | (byte(o5) << 8));
+        // One byte per output, from output 0 in POSTDIVA's low byte: the
+        // divider in bits 5:0, OUTEN in bit 7. Off outputs (and the
+        // PIC32CK's fractional output 0) keep a legal divider.
+        let mut bytes = [0x20u32; 6];
+        for (i, output) in pll.outputs.iter().enumerate() {
+            if let Some(divider) = output {
+                bytes[usize::from(PLL_OUTPUTS) + i] = u32::from(*divider) | PLL_OUTEN;
+            }
+        }
+        write(OSCCTRL_PLL0POSTDIVA, bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24));
+        // The SG00's POSTDIVB has output 4 alone.
+        #[cfg(pic32ck)]
+        write(OSCCTRL_PLL0POSTDIVB, bytes[4] | (bytes[5] << 8));
+        #[cfg(pic32cm_sg)]
+        write(OSCCTRL_PLL0POSTDIVB, bytes[4]);
         write(OSCCTRL_INTFLAG, PLL_LOCK);
         write(OSCCTRL_PLL0CTRL, control | PLL_ENABLE);
         if !wait(10_000_000, || read(OSCCTRL_INTFLAG) & PLL_LOCK != 0) {
@@ -496,6 +610,7 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
 mod tests {
     use super::*;
 
+    #[cfg(usb_hs)]
     #[test]
     fn the_usbhs_phy_takes_12_or_24_mhz() {
         assert!(usbhs_reference(12_000_000));
@@ -504,6 +619,41 @@ mod tests {
         assert!(!usbhs_reference(48_000_000));
     }
 
+    #[cfg(pic32cm_sg)]
+    #[test]
+    fn the_sg00_crystal_preset() {
+        let c = Config::pll_from_xosc(Xosc::Crystal(12_000_000));
+        let f = c.frequencies().unwrap();
+        assert_eq!(f.pll0_vco, Some(1_440_000_000));
+        assert_eq!(f.pll0, [Some(72_000_000), Some(40_000_000), Some(48_000_000), None, None]);
+        assert_eq!(f.generators[0], Some(72_000_000));
+        assert_eq!(f.generators[2], Some(40_000_000));
+        assert_eq!(f.generators[3], Some(48_000_000));
+        assert_eq!(f.generators[4], Some(16_000_000));
+        assert_eq!(f.generators[1], None);
+        // Output 0 is GENCTRL.SRC 6, "PLL 0 port CLKOUT1" in the data sheet.
+        assert_eq!(Source::Pll0(0).code(), 6);
+        for hz in [8_000_000, 16_000_000, 24_000_000, 48_000_000] {
+            assert_eq!(Config::pll_from_xosc(Xosc::External(hz)).frequencies().unwrap().pll0_vco, Some(1_440_000_000));
+        }
+        let mut c = c;
+        c.pll0.as_mut().unwrap().outputs[0] = Some(19);
+        assert_eq!(c.frequencies(), Err(Error::CpuTooFast(75_789_473)));
+        c.generators[0] = Some(Generator::new(Source::Pll0(3)));
+        assert_eq!(c.frequencies(), Err(Error::GeneratorSource(0)));
+        c.generators[0] = Some(Generator::new(Source::Pll0(5)));
+        assert_eq!(c.frequencies(), Err(Error::GeneratorSource(0)));
+    }
+
+    #[cfg(pic32cm_sg)]
+    #[test]
+    fn sg00_wait_states() {
+        assert_eq!(flash_wait_states(24_000_000), 0);
+        assert_eq!(flash_wait_states(48_000_000), 1 << FCR_FWS_SHIFT);
+        assert_eq!(flash_wait_states(72_000_000), 2 << FCR_FWS_SHIFT);
+    }
+
+    #[cfg(pic32ck)]
     #[test]
     fn the_crystal_preset() {
         let f = Config::pll_from_xosc(Xosc::Crystal(12_000_000)).frequencies().unwrap();
@@ -525,6 +675,7 @@ mod tests {
         assert_eq!(f.generators[1..], [None; GENERATORS - 1]);
     }
 
+    #[cfg(pic32ck)]
     #[test]
     fn checks() {
         let mut c = Config::pll_from_xosc(Xosc::Crystal(12_000_000));
@@ -551,6 +702,7 @@ mod tests {
         assert_eq!(c.frequencies(), Err(Error::GeneratorSource(1)));
     }
 
+    #[cfg(pic32ck)]
     #[test]
     fn wait_states() {
         assert_eq!(flash_wait_states(20_000_000), 0);

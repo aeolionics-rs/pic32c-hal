@@ -196,6 +196,29 @@ The plan is to publish to crates.io once these have stabilized.
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). Both pass on the board: 1002 ms a tick, 8000 bytes
   echoed intact at 115,200 baud.
+- `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
+  PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
+  `fix_svd.py`).
+- PIC32CM SG00 (Cortex-M23, feature `pic32cm5112sg00100`, target
+  `thumbv8m.base-none-eabi`): mostly the PIC32CK's IP at other addresses.
+  `clocks` is the CK's module (XOSC, PLL0 and twelve generators; its PLL
+  outputs are numbered 0 to 4, it needs the additional regulator, and
+  takes one flash wait state per 24 MHz to 72 MHz), `gpio`, `uart` (SERCOM
+  v6 with its FIFO; no DMA yet), `i2c` (built, not yet run), `wdt`, `uid`,
+  the time driver on a TCC (all seven are 16-bit), and `can` (an `M_CAN`
+  3.3.0 behind a wrapper, so its registers start 0x100 in and the message
+  RAM's offset is in the wrapper). Not yet: its DMAC (the SAM D5x kind),
+  flash (another FCW), and the rest.
+- `examples/pic32cm-sg00-curiosity-pro`: board support for the SG00
+  Curiosity Pro (EV53V42A; VCOM on SERCOM4 PD19/PD20, LED0 PA20, LED1
+  PA18, SW0 PB07, SW1 PB11), examples `blink`, `uart_echo`, `watchdog`
+  (with the unique ID) and `can_loopback` (internal loopback only). Build
+  with `cargo build --release -p pic32cm-sg00-curiosity-pro --target
+  thumbv8m.base-none-eabi --example blink`; flash with pyOCD and the
+  PIC32CM-SG00_DFP pack, the board's debugger in CMSIS-DAP mode. All four
+  pass on the board: 1,002-1,003 ms a tick for a minute, 20,000 bytes
+  echoed intact at 115,200 baud, the watchdog's tests and reset, and every
+  classic and FD frame through CAN0 at 500 kbit/s and 2 Mbit/s.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -285,6 +308,20 @@ PIC32CM PL10:
 - Unique ID, and a software open-drain output.
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.
+
+PIC32CM SG00:
+
+- The DMAC (SAM D5x style, u2223), then UART DMA, the ring receiver and
+  SPI.
+- Flash on its FCW (a different register map from the CK's).
+- CAN on a bus (only internal loopback has run); `exti`, `rtc`, `adc` and
+  `usb` (the CK's IP versions) checked on the board.
+- cortex-m 0.7 sets NVIC priorities with byte writes (only ARMv6-M gets
+  word writes), and the M23 ignored them on the bench: `set_priority`
+  does nothing there. Needs a word-write path (or a cortex-m fix) before
+  anything relies on priorities.
+- `boot!` (BFM stage-0 and the SRAM ECC `__pre_init`) is the same in both
+  board crates: a candidate for the HAL.
 
 Both families:
 

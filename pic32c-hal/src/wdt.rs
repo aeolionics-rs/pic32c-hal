@@ -29,7 +29,11 @@ use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{Peri, peripherals};
 
+#[cfg(pic32ck)]
 const WDT: usize = 0x4401_6000;
+/// The SG00's (DS60001921 chapter 25: the same IP; RSTC chapter 31).
+#[cfg(pic32cm_sg)]
+const WDT: usize = 0x4400_E000;
 const CTRLA: usize = WDT;
 const CONFIG: usize = WDT + 0x01;
 const EWCTRL: usize = WDT + 0x02;
@@ -47,7 +51,10 @@ const SYNC_CLEAR: u32 = 1 << 5;
 /// The one value CLEAR takes that doesn't reset the chip.
 const CLEAR_KEY: u8 = 0xA5;
 
+#[cfg(pic32ck)]
 const RCAUSE: usize = 0x4400_A000;
+#[cfg(pic32cm_sg)]
+const RCAUSE: usize = 0x4500_4000;
 
 /// A watchdog period: a number of cycles of its 1.024 kHz clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

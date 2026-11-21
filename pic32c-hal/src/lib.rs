@@ -56,17 +56,19 @@
 
 #![cfg_attr(not(test), no_std)]
 
-#[cfg(not(any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048")))]
-compile_error!("choose the chip: feature `pic32ck2051sg01144`, `pic32ck2051gc01144` or `pic32cm6408pl10048`");
+#[cfg(not(any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100")))]
+compile_error!("choose the chip: feature `pic32ck2051sg01144`, `pic32ck2051gc01144`, `pic32cm6408pl10048` or `pic32cm5112sg00100`");
 #[cfg(any(
     all(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144"),
     all(feature = "pic32ck2051sg01144", feature = "pic32cm6408pl10048"),
-    all(feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048")
+    all(feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048"),
+    all(feature = "pic32cm5112sg00100", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048"))
 ))]
 compile_error!("choose one chip");
 
 #[cfg_attr(pic32ck, path = "chip/pic32ck2051_144.rs")]
 #[cfg_attr(pic32cm_pl, path = "chip/pic32cm6408pl10048.rs")]
+#[cfg_attr(pic32cm_sg, path = "chip/pic32cm5112sg00100.rs")]
 #[allow(clippy::missing_safety_doc, clippy::expl_impl_clone_on_copy, reason = "in code embassy-hal-internal's macros generate")]
 mod chip;
 
@@ -76,7 +78,7 @@ pub mod adc;
 pub mod cache;
 #[cfg(all(feature = "can-hal", mcan))]
 pub mod can;
-#[cfg_attr(pic32ck, path = "clocks.rs")]
+#[cfg_attr(any(pic32ck, pic32cm_sg), path = "clocks.rs")]
 #[cfg_attr(pic32cm_pl, path = "clocks_pl.rs")]
 pub mod clocks;
 #[cfg(dma_axi)]
@@ -94,14 +96,15 @@ pub mod mode;
 #[cfg(rtc_v3)]
 pub mod rtc;
 pub mod sercom;
-#[cfg(sercom_v6)]
+// Its async half is DMA-driven, so it waits for the SG00's DMAC.
+#[cfg(all(sercom_v6, dma_axi))]
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time;
 #[cfg(trng)]
 pub mod trng;
 pub mod uart;
-#[cfg(pic32ck)]
+#[cfg(any(pic32ck, pic32cm_sg))]
 pub mod uid;
 #[cfg(all(feature = "usb", usb_fs))]
 pub mod usb;
@@ -207,6 +210,17 @@ impl Default for Config {
     /// The clocks as they come out of reset, plus generator 4 at 16 MHz
     /// (the DFLL48M / 3) for the time driver: no crystal needed, but the
     /// DFLL48M runs open loop, so time is only as good as it.
+    fn default() -> Self {
+        let mut clocks = clocks::Config::boot();
+        clocks.generators[4] = Some(clocks::Generator::divided(clocks::Source::Dfll48m, 3));
+        Self::new(clocks)
+    }
+}
+
+#[cfg(pic32cm_sg)]
+impl Default for Config {
+    /// The clocks as they come out of reset, plus generator 4 at 16 MHz
+    /// (the DFLL48M / 3) for the time driver, as on the PIC32CK.
     fn default() -> Self {
         let mut clocks = clocks::Config::boot();
         clocks.generators[4] = Some(clocks::Generator::divided(clocks::Source::Dfll48m, 3));
