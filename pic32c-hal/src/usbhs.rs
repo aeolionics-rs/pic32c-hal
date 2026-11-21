@@ -75,7 +75,7 @@ use core::task::Poll;
 use embassy_futures::select::{Either, select};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Timer};
-use embassy_usb_driver::{Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported};
+use embassy_usb_driver::{Direction, EndpointAddress, EndpointAllocError, EndpointDisabledError, EndpointError, EndpointInfo, EndpointType, Event, Speed, Unsupported};
 
 use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -370,6 +370,10 @@ fn on_interrupt() {
     if bus != 0 {
         BUS_EVENTS.fetch_or(bus, Ordering::AcqRel);
         BUS_WAKER.wake();
+        // A control stage in progress ends on a reset, a suspend or a
+        // disconnect.
+        IN_WAKERS[0].wake();
+        OUT_WAKERS[0].wake();
     }
     if tx & 1 != 0 {
         EP0_EVENT.store(true, Ordering::Release);
@@ -412,7 +416,7 @@ impl Default for Config {
 
 /// An endpoint's settings from its allocation.
 #[derive(Clone, Copy)]
-struct EndpointConfig {
+struct EndpointSetup {
     ep_type: EndpointType,
     max_packet_size: u16,
     /// Its FIFO's start in the FIFO RAM, in bytes, and size code (8 << code
@@ -426,8 +430,8 @@ struct EndpointConfig {
 pub struct Driver<'d> {
     /// POWR's speed setting: HSEN or nothing.
     speed: u8,
-    out_eps: [Option<EndpointConfig>; ENDPOINTS],
-    in_eps: [Option<EndpointConfig>; ENDPOINTS],
+    out_eps: [Option<EndpointSetup>; ENDPOINTS],
+    in_eps: [Option<EndpointSetup>; ENDPOINTS],
     /// The first free byte of FIFO RAM.
     fifo_free: usize,
     /// DMA channels left to give bulk endpoints (none with DMA off).
@@ -497,7 +501,7 @@ impl<'d> Driver<'d> {
         #[expect(clippy::cast_possible_truncation, reason = "under 8192")]
         let fifo_start = self.fifo_free as u16;
         self.fifo_free += bytes;
-        let config = Some(EndpointConfig { ep_type, max_packet_size, fifo_start, fifo_size, double });
+        let config = Some(EndpointSetup { ep_type, max_packet_size, fifo_start, fifo_size, double });
         if direction == Direction::In {
             self.in_eps[n] = config;
         } else {
@@ -579,38 +583,45 @@ fn load_phy_trim() {
 impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
     type EndpointOut = Endpoint<'d, Out>;
     type EndpointIn = Endpoint<'d, In>;
-    type ControlPipe = ControlPipe<'d>;
     type Bus = Bus<'d>;
 
-    fn alloc_endpoint_out(&mut self, ep_type: EndpointType, ep_addr: Option<EndpointAddress>, max_packet_size: u16, interval_ms: u8) -> Result<Self::EndpointOut, EndpointAllocError> {
-        let n = self.alloc(Direction::Out, ep_type, ep_addr, max_packet_size)?;
-        Ok(Endpoint::new(EndpointAddress::from_parts(n, Direction::Out), ep_type, max_packet_size, interval_ms, self.dma_channel(ep_type)))
+    fn alloc_endpoint_out(&mut self, config: &embassy_usb_driver::EndpointConfig) -> Result<Self::EndpointOut, EndpointAllocError> {
+        let n = self.alloc(Direction::Out, config.ep_type, config.addr, config.max_packet_size)?;
+        let info = EndpointInfo::new(EndpointAddress::from_parts(n, Direction::Out), config.ep_type, config.max_packet_size, config.interval);
+        Ok(Endpoint::new(info, self.dma_channel(config.ep_type)))
     }
 
-    fn alloc_endpoint_in(&mut self, ep_type: EndpointType, ep_addr: Option<EndpointAddress>, max_packet_size: u16, interval_ms: u8) -> Result<Self::EndpointIn, EndpointAllocError> {
-        let n = self.alloc(Direction::In, ep_type, ep_addr, max_packet_size)?;
-        Ok(Endpoint::new(EndpointAddress::from_parts(n, Direction::In), ep_type, max_packet_size, interval_ms, self.dma_channel(ep_type)))
+    fn alloc_endpoint_in(&mut self, config: &embassy_usb_driver::EndpointConfig) -> Result<Self::EndpointIn, EndpointAllocError> {
+        let n = self.alloc(Direction::In, config.ep_type, config.addr, config.max_packet_size)?;
+        let info = EndpointInfo::new(EndpointAddress::from_parts(n, Direction::In), config.ep_type, config.max_packet_size, config.interval);
+        Ok(Endpoint::new(info, self.dma_channel(config.ep_type)))
     }
 
-    fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(self, control_max_packet_size: u16) -> Self::Bus {
         // High speed takes 64 bytes on endpoint 0, full speed up to 64.
         let control = control_max_packet_size.min(64);
-        (
-            Bus { speed: self.speed, out_eps: self.out_eps, in_eps: self.in_eps, powered: false, suspended: false, _lifetime: PhantomData },
-            ControlPipe { max_packet_size: control, setup_pending: false, out_pending: false, _lifetime: PhantomData },
-        )
+        Bus { speed: self.speed, out_eps: self.out_eps, in_eps: self.in_eps, powered: false, suspended: false, control, rx_pending: false, _lifetime: PhantomData }
     }
 }
 
-/// Bus control.
+/// Bus control, and endpoint 0, through the core's control handshake: a
+/// SETUP stays in the FIFO (RXPKTRDY) until the request's next step
+/// services it, so `control_accept` and `control_reject` can end a request
+/// without data in one write (DATAEND, or SENDSTALL), and the last OUT data
+/// packet likewise waits for the answer.
 pub struct Bus<'d> {
     speed: u8,
-    out_eps: [Option<EndpointConfig>; ENDPOINTS],
-    in_eps: [Option<EndpointConfig>; ENDPOINTS],
+    out_eps: [Option<EndpointSetup>; ENDPOINTS],
+    in_eps: [Option<EndpointSetup>; ENDPOINTS],
     /// Whether the last [`Event`] was `PowerDetected` rather than
     /// `PowerRemoved`, and whether the bus is suspended since.
     powered: bool,
     suspended: bool,
+    /// Endpoint 0's packet size.
+    control: u16,
+    /// The SETUP's, or the last OUT data packet's, RXPKTRDY, not yet
+    /// serviced.
+    rx_pending: bool,
     _lifetime: PhantomData<&'d ()>,
 }
 
@@ -665,7 +676,10 @@ impl Bus<'_> {
             ENABLED.store(0, Ordering::Release);
             reset_interrupts();
             wake_endpoints();
-            return Some(Event::Reset);
+            // A SETUP from before the reset belongs to a request the host
+            // abandoned.
+            self.rx_pending = false;
+            return Some(Event::Reset(if is_high_speed() { Speed::High } else { Speed::Full }));
         }
         if events & USB_RESUME != 0 {
             BUS_EVENTS.fetch_and(!USB_RESUME, Ordering::AcqRel);
@@ -713,7 +727,12 @@ impl embassy_usb_driver::Bus for Bus<'_> {
             let watch = !self.powered || self.suspended;
             let event = poll_fn(|cx| {
                 BUS_WAKER.register(cx.waker());
-                self.event().map_or(Poll::Pending, Poll::Ready)
+                OUT_WAKERS[0].register(cx.waker());
+                // A bus event first: it makes a SETUP before it stale.
+                if let Some(event) = self.event() {
+                    return Poll::Ready(event);
+                }
+                self.poll_setup().map(Event::Setup)
             });
             if !watch {
                 return event.await;
@@ -724,7 +743,91 @@ impl embassy_usb_driver::Bus for Bus<'_> {
         }
     }
 
-    fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
+    fn control_max_packet_size(&self) -> usize {
+        usize::from(self.control)
+    }
+
+    async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let packet = usize::from(self.control);
+        let mut total = 0;
+        loop {
+            // The SETUP, or the packet before, serviced: the host may send.
+            self.service(0);
+            let Ep0::Ready = Self::wait(|csr| csr & CSR0_RXPKTRDY != 0, &OUT_WAKERS[0]).await else {
+                return Err(EndpointError::Disabled);
+            };
+            let len = indexed(0, || usize::from(read16(RXCOUNT)));
+            let rest = &mut buf[total..];
+            if len > rest.len() {
+                indexed(0, || write8(CSR0L, CSR0_SERVICEDRXPKTRDY | CSR0_SENDSTALL));
+                return Err(EndpointError::BufferOverflow);
+            }
+            fifo_read(0, &mut rest[..len]);
+            total += len;
+            // The last packet waits for `control_accept` (DATAEND) or
+            // `control_reject`.
+            self.rx_pending = true;
+            if len < packet || total == buf.len() {
+                return Ok(total);
+            }
+        }
+    }
+
+    async fn control_data_in(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let packet = usize::from(self.control);
+        let zlp = data.is_empty() || (needs_zlp && data.len().is_multiple_of(packet));
+        let count = data.len().div_ceil(packet) + usize::from(zlp);
+        for i in 0..count {
+            let chunk = data.chunks(packet).nth(i).unwrap_or(&[]);
+            self.service(0);
+            if let Ep0::Ended = Self::wait(|csr| csr & CSR0_TXPKTRDY == 0, &IN_WAKERS[0]).await {
+                return Err(EndpointDisabledError);
+            }
+            fifo_write(0, chunk);
+            // DATAEND with the last packet: the core then runs the status
+            // stage.
+            let last = i + 1 == count;
+            indexed(0, || write8(CSR0L, CSR0_TXPKTRDY | if last { CSR0_DATAEND } else { 0 }));
+            if let Ep0::Ended = Self::wait(|csr| csr & CSR0_TXPKTRDY == 0, &IN_WAKERS[0]).await {
+                return Err(EndpointDisabledError);
+            }
+        }
+        Ok(())
+    }
+
+    async fn control_accept(&mut self) {
+        // DATAEND: the core answers the status stage itself.
+        self.service(CSR0_DATAEND);
+    }
+
+    async fn control_reject(&mut self) {
+        self.service(CSR0_SENDSTALL);
+    }
+
+    async fn control_accept_set_address(&mut self, addr: u8) {
+        // The new address takes effect after the status stage, which ends
+        // with an endpoint 0 interrupt (or a new SETUP's); one a reset cut
+        // short doesn't count.
+        EP0_EVENT.store(false, Ordering::Release);
+        self.service(CSR0_DATAEND);
+        let done = poll_fn(|cx| {
+            IN_WAKERS[0].register(cx.waker());
+            if EP0_EVENT.load(Ordering::Acquire) {
+                Poll::Ready(true)
+            } else if control_aborted() {
+                Poll::Ready(false)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
+        if done {
+            write8(FADDR, addr & 0x7F);
+        }
+    }
+
+    #[expect(clippy::unused_async_trait_impl, reason = "the trait's signature; nothing to wait for")]
+    async fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         let n = ep_addr.index();
         if n == 0 || n >= ENDPOINTS {
             return;
@@ -747,7 +850,30 @@ impl embassy_usb_driver::Bus for Bus<'_> {
         if ep_addr.is_in() { IN_WAKERS[n].wake() } else { OUT_WAKERS[n].wake() }
     }
 
-    fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+    fn endpoint_is_enabled(&mut self, ep_addr: EndpointAddress) -> bool {
+        ep_addr.index() == 0 || is_enabled(ep_addr)
+    }
+
+    async fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
+        set_stalled(ep_addr, stalled);
+    }
+
+    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+        is_stalled(ep_addr)
+    }
+
+    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
+        // Resume signalling for 10 ms (the data sheet's 10 to 15).
+        write8(POWR, read8(POWR) | POWR_RESUME);
+        Timer::after_millis(10).await;
+        write8(POWR, read8(POWR) & !POWR_RESUME);
+        self.suspended = false;
+        Ok(())
+    }
+}
+
+/// Sets or clears an endpoint's STALL handshake.
+fn set_stalled(ep_addr: EndpointAddress, stalled: bool) {
         let n = ep_addr.index();
         if n >= ENDPOINTS {
             return;
@@ -765,9 +891,10 @@ impl embassy_usb_driver::Bus for Bus<'_> {
             }
         });
         if ep_addr.is_in() { IN_WAKERS[n].wake() } else { OUT_WAKERS[n].wake() }
-    }
+}
 
-    fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
+/// Whether an endpoint's STALL handshake is set.
+fn is_stalled(ep_addr: EndpointAddress) -> bool {
         let n = ep_addr.index();
         if n >= ENDPOINTS {
             return false;
@@ -777,21 +904,11 @@ impl embassy_usb_driver::Bus for Bus<'_> {
             (_, Direction::In) => read8(TXCSRL) & TX_SENDSTALL != 0,
             (_, Direction::Out) => read8(RXCSRL) & RX_SENDSTALL != 0,
         })
-    }
-
-    async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        // Resume signalling for 10 ms (the data sheet's 10 to 15).
-        write8(POWR, read8(POWR) | POWR_RESUME);
-        Timer::after_millis(10).await;
-        write8(POWR, read8(POWR) & !POWR_RESUME);
-        self.suspended = false;
-        Ok(())
-    }
 }
 
 /// Sets the selected endpoint up from its allocation, empty, unstalled and
 /// at DATA0.
-fn set_up_endpoint(direction: Direction, config: EndpointConfig) {
+fn set_up_endpoint(direction: Direction, config: EndpointSetup) {
     let size = config.fifo_size | if config.double { FIFOSZ_DPB } else { 0 };
     let start = config.fifo_start / 8;
     if direction == Direction::In {
@@ -902,8 +1019,8 @@ pub struct Endpoint<'d, D> {
 }
 
 impl<D> Endpoint<'_, D> {
-    const fn new(addr: EndpointAddress, ep_type: EndpointType, max_packet_size: u16, interval_ms: u8, dma: Option<u8>) -> Self {
-        Self { info: EndpointInfo { addr, ep_type, max_packet_size, interval_ms }, dma, _marker: PhantomData }
+    const fn new(info: EndpointInfo, dma: Option<u8>) -> Self {
+        Self { info, dma, _marker: PhantomData }
     }
 
     /// The DMA channel to move `len` bytes at `address` with, if this
@@ -920,8 +1037,8 @@ impl<D> Endpoint<'_, D> {
 }
 
 impl<D> embassy_usb_driver::Endpoint for Endpoint<'_, D> {
-    fn info(&self) -> &EndpointInfo {
-        &self.info
+    fn info(&self) -> EndpointInfo {
+        self.info
     }
 
     async fn wait_enabled(&mut self) {
@@ -933,10 +1050,53 @@ impl<D> embassy_usb_driver::Endpoint for Endpoint<'_, D> {
         })
         .await;
     }
+
+    fn is_enabled(&self) -> bool {
+        is_enabled(self.info.addr)
+    }
+
+    async fn set_stalled(&mut self, stalled: bool) {
+        set_stalled(self.info.addr, stalled);
+    }
+
+    fn is_stalled(&self) -> bool {
+        is_stalled(self.info.addr)
+    }
 }
 
 impl embassy_usb_driver::EndpointOut for Endpoint<'_, Out> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let packet = usize::from(self.info.max_packet_size);
+        let mut total = 0;
+        loop {
+            let len = self.read_packet(&mut buf[total..]).await?;
+            total += len;
+            if len < packet || total == buf.len() {
+                return Ok(total);
+            }
+        }
+    }
+}
+
+impl embassy_usb_driver::EndpointIn for Endpoint<'_, In> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
+        let packet = usize::from(self.info.max_packet_size);
+        if buf.is_empty() {
+            return self.write_packet(&[]).await;
+        }
+        for chunk in buf.chunks(packet) {
+            self.write_packet(chunk).await?;
+        }
+        if needs_zlp && buf.len().is_multiple_of(packet) {
+            self.write_packet(&[]).await?;
+        }
+        Ok(())
+    }
+}
+
+impl Endpoint<'_, Out> {
+    /// Takes one packet into `buf`.
+    async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let addr = self.info.addr;
         let n = addr.index();
         let waker = self.waker();
@@ -971,20 +1131,18 @@ impl embassy_usb_driver::EndpointOut for Endpoint<'_, Out> {
     }
 }
 
-impl embassy_usb_driver::EndpointIn for Endpoint<'_, In> {
-    async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+impl Endpoint<'_, In> {
+    /// Sends one packet, `buf`, once there is room for it in the FIFO.
+    async fn write_packet(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
         let addr = self.info.addr;
         let n = addr.index();
-        if buf.len() > usize::from(self.info.max_packet_size) {
-            return Err(EndpointError::BufferOverflow);
-        }
         let waker = self.waker();
         // Room for a packet: TXPKTRDY clear (a double-buffered FIFO clears
         // it again while its first packet waits for the host).
         poll_fn(|cx| {
             waker.register(cx.waker());
             if !is_enabled(addr) {
-                return Poll::Ready(Err(EndpointError::Disabled));
+                return Poll::Ready(Err(EndpointDisabledError));
             }
             if indexed(n, || read8(TXCSRL) & TX_TXPKTRDY == 0) { Poll::Ready(Ok(())) } else { Poll::Pending }
         })
@@ -992,7 +1150,7 @@ impl embassy_usb_driver::EndpointIn for Endpoint<'_, In> {
         if let Some(channel) = self.dma_for(buf.as_ptr() as usize, buf.len()) {
             // SAFETY: as in `read`; the DMA only reads `buf`.
             if unsafe { dma_transfer(channel, n, buf.as_ptr() as usize, buf.len(), true) }.await.is_err() {
-                return Err(EndpointError::Disabled);
+                return Err(EndpointDisabledError);
             }
         } else {
             fifo_write(n, buf);
@@ -1000,19 +1158,6 @@ impl embassy_usb_driver::EndpointIn for Endpoint<'_, In> {
         indexed(n, || write8(TXCSRL, (read8(TXCSRL) & TX_SENDSTALL) | TX_KEEP | TX_TXPKTRDY));
         Ok(())
     }
-}
-
-/// Endpoint 0, through the core's control handshake: a SETUP stays in the
-/// FIFO (RXPKTRDY) until the request's next step services it, so `accept`
-/// and `reject` can end a request without data in one write (DATAEND, or
-/// SENDSTALL), and the last OUT data packet likewise waits for the answer.
-pub struct ControlPipe<'d> {
-    max_packet_size: u16,
-    /// The SETUP's RXPKTRDY, not yet serviced.
-    setup_pending: bool,
-    /// The last OUT data packet's RXPKTRDY, not yet serviced.
-    out_pending: bool,
-    _lifetime: PhantomData<&'d ()>,
 }
 
 /// Why endpoint 0 stopped waiting.
@@ -1023,13 +1168,20 @@ enum Ep0 {
     Ended,
 }
 
-impl ControlPipe<'_> {
+/// Whether a control stage can no longer complete: a reset, a suspend or a
+/// disconnect waits for [`Bus::poll`](embassy_usb_driver::Bus::poll), which
+/// takes it.
+fn control_aborted() -> bool {
+    BUS_EVENTS.load(Ordering::Acquire) & (USB_RESET | USB_SUSPEND | USB_DISCON) != 0
+}
+
+impl Bus<'_> {
     /// Waits for `ready(CSR0L)`, or for the host to end the request.
     async fn wait(ready: impl Fn(u8) -> bool, waker: &AtomicWaker) -> Ep0 {
         poll_fn(|cx| {
             waker.register(cx.waker());
             let csr = indexed(0, || read8(CSR0L));
-            if csr & CSR0_SETUPEND != 0 {
+            if csr & CSR0_SETUPEND != 0 || control_aborted() {
                 Poll::Ready(Ep0::Ended)
             } else if ready(csr) {
                 Poll::Ready(Ep0::Ready)
@@ -1043,108 +1195,41 @@ impl ControlPipe<'_> {
     /// Services whatever packet the request left in the FIFO, with `extra`
     /// (DATAEND, SENDSTALL) in the same write.
     fn service(&mut self, extra: u8) {
-        let serviced = if self.setup_pending || self.out_pending { CSR0_SERVICEDRXPKTRDY } else { 0 };
-        self.setup_pending = false;
-        self.out_pending = false;
+        let serviced = if self.rx_pending { CSR0_SERVICEDRXPKTRDY } else { 0 };
+        self.rx_pending = false;
         if serviced | extra != 0 {
             indexed(0, || write8(CSR0L, serviced | extra));
         }
     }
 }
 
-impl embassy_usb_driver::ControlPipe for ControlPipe<'_> {
-    fn max_packet_size(&self) -> usize {
-        usize::from(self.max_packet_size)
-    }
-
-    async fn setup(&mut self) -> [u8; 8] {
-        loop {
-            let len = poll_fn(|cx| {
-                OUT_WAKERS[0].register(cx.waker());
-                indexed(0, || {
-                    let csr = read8(CSR0L);
-                    // A stall sent, or a request the host ended early: both
-                    // done with.
-                    if csr & CSR0_SENTSTALL != 0 {
-                        write8(CSR0L, 0);
-                    }
-                    if csr & CSR0_SETUPEND != 0 {
-                        write8(CSR0L, CSR0_SERVICEDSETUPEND);
-                    }
-                    if csr & CSR0_RXPKTRDY != 0 { Poll::Ready(usize::from(read16(RXCOUNT))) } else { Poll::Pending }
-                })
-            })
-            .await;
-            if len != 8 {
+impl Bus<'_> {
+    /// A SETUP, if one has come in: its eight bytes, left in the FIFO
+    /// (unserviced) for the request's first step.
+    fn poll_setup(&mut self) -> Poll<[u8; 8]> {
+        indexed(0, || {
+            let csr = read8(CSR0L);
+            // A stall sent, or a request the host ended early: both done
+            // with.
+            if csr & CSR0_SENTSTALL != 0 {
+                write8(CSR0L, 0);
+            }
+            if csr & CSR0_SETUPEND != 0 {
+                write8(CSR0L, CSR0_SERVICEDSETUPEND);
+            }
+            if csr & CSR0_RXPKTRDY == 0 {
+                return Poll::Pending;
+            }
+            if read16(RXCOUNT) != 8 {
                 // Not a SETUP: an OUT packet nothing waits for.
-                indexed(0, || write8(CSR0L, CSR0_SERVICEDRXPKTRDY));
-                continue;
+                write8(CSR0L, CSR0_SERVICEDRXPKTRDY);
+                return Poll::Pending;
             }
             let mut packet = [0; 8];
             fifo_read(0, &mut packet);
-            self.setup_pending = true;
-            self.out_pending = false;
-            return packet;
-        }
-    }
-
-    async fn data_out(&mut self, buf: &mut [u8], _first: bool, last: bool) -> Result<usize, EndpointError> {
-        // The SETUP, or the packet before, serviced: the host may send.
-        self.service(0);
-        let Ep0::Ready = Self::wait(|csr| csr & CSR0_RXPKTRDY != 0, &OUT_WAKERS[0]).await else {
-            return Err(EndpointError::Disabled);
-        };
-        let len = indexed(0, || usize::from(read16(RXCOUNT)));
-        if len > buf.len() {
-            indexed(0, || write8(CSR0L, CSR0_SERVICEDRXPKTRDY | CSR0_SENDSTALL));
-            return Err(EndpointError::BufferOverflow);
-        }
-        fifo_read(0, &mut buf[..len]);
-        // The last packet waits for `accept` (DATAEND) or `reject`.
-        self.out_pending = true;
-        if !last {
-            self.service(0);
-        }
-        Ok(len)
-    }
-
-    async fn data_in(&mut self, data: &[u8], _first: bool, last: bool) -> Result<(), EndpointError> {
-        if data.len() > usize::from(self.max_packet_size) {
-            return Err(EndpointError::BufferOverflow);
-        }
-        self.service(0);
-        if let Ep0::Ended = Self::wait(|csr| csr & CSR0_TXPKTRDY == 0, &IN_WAKERS[0]).await {
-            return Err(EndpointError::Disabled);
-        }
-        fifo_write(0, data);
-        // DATAEND with the last packet: the core then runs the status stage.
-        indexed(0, || write8(CSR0L, CSR0_TXPKTRDY | if last { CSR0_DATAEND } else { 0 }));
-        match Self::wait(|csr| csr & CSR0_TXPKTRDY == 0, &IN_WAKERS[0]).await {
-            Ep0::Ready => Ok(()),
-            Ep0::Ended => Err(EndpointError::Disabled),
-        }
-    }
-
-    async fn accept(&mut self) {
-        // DATAEND: the core answers the status stage itself.
-        self.service(CSR0_DATAEND);
-    }
-
-    async fn reject(&mut self) {
-        self.service(CSR0_SENDSTALL);
-    }
-
-    async fn accept_set_address(&mut self, addr: u8) {
-        // The new address takes effect after the status stage, which ends
-        // with an endpoint 0 interrupt (or a new SETUP's).
-        EP0_EVENT.store(false, Ordering::Release);
-        self.accept().await;
-        poll_fn(|cx| {
-            IN_WAKERS[0].register(cx.waker());
-            if EP0_EVENT.load(Ordering::Acquire) { Poll::Ready(()) } else { Poll::Pending }
+            self.rx_pending = true;
+            Poll::Ready(packet)
         })
-        .await;
-        write8(FADDR, addr & 0x7F);
     }
 }
 

@@ -9,5 +9,5 @@ include = [{ path = "local.toml", optional = true }]
 
 # getrandom (under rustls-rustcrypto) takes its bytes from a function the
 # firmware defines: pic32ck-curiosity-ultra's eth_https backs it with the TRNG.
-[target.thumbv8m.main-none-eabihf]
+[target."thumbv8m.main-none-eabihf"]
 rustflags = ["--cfg", "getrandom_backend=\"custom\""]

@@ -20,3 +20,28 @@ debug = true
 opt-level = "s"
 lto = "fat"
 codegen-units = 1
+
+# Spike: embassy `main`, where embassy-net runs on xarxa instead of smoltcp.
+# Every embassy crate the workspace reaches is patched to the same revision:
+# a crates.io embassy-time-driver beside a git one is two crates with the
+# same `links`, which Cargo refuses.
+[patch.crates-io]
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+
+# Ported for the spike, checked out beside this repository in the spike's
+# folder: picoserve 0.21.0 (its `embassy` glue on the new TcpSocket and
+# TcpListener, sammhicks/picoserve#122) and edge-nal-embassy from our edge-net
+# fork's branch `xarxa-embassy-net` (UDP and DNS; TCP not yet).
+picoserve = { path = "../picoserve" }
+edge-nal-embassy = { path = "../edge-net/edge-nal-embassy" }
