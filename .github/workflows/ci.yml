@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 Aeolionics, LLC
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# The check on every push to main and every pull request. It builds against
+# the git dependencies as pushed (no local patch).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The HAL's host tests, and clippy over them.
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
+      - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
+
+  # The HAL for each chip, every feature that chip has.
+  chip:
+    name: ${{ matrix.chip }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - chip: pic32ck2051sg01144
+            target: thumbv8m.main-none-eabihf
+            features: can-hal,eth,exti,time-driver,usb,usbhs
+          - chip: pic32ck2051gc01144
+            target: thumbv8m.main-none-eabihf
+            features: can-hal,eth,exti,time-driver,usb,usbhs
+          - chip: pic32cm6408pl10048
+            target: thumbv6m-none-eabi
+            features: time-driver
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,${{ matrix.features }} -- -D warnings
+
+  # The board crates and their bench programs. The TLS programs build C and
+  # assembly, so they need Arm's GCC.
+  board:
+    name: ${{ matrix.board }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [sg01, gc01]
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} --examples -- -D warnings
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},tls --example eth_https --example crypto_bench -- -D warnings
+
+  pl10-board:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo clippy --release -p pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check
+      - uses: fsfe/reuse-action@v5

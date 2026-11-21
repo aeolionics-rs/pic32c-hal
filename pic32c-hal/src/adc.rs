@@ -619,6 +619,7 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::decimal_bitwise_operands, reason = "the data sheet's values, in decimal as it gives them")]
     fn calibration_defaults() {
         // The data sheet's defaults: PTAT 992 at 25.0 °C, 1325 at 125.0 °C,
         // the bandgap 1489 at both, against 3300 mV.

@@ -1,6 +1,11 @@
 pic32c-hal
 ==========
 
+[![CI](https://github.com/aeolionics-rs/pic32c-hal/actions/workflows/ci.yml/badge.svg)](https://github.com/aeolionics-rs/pic32c-hal/actions/workflows/ci.yml)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#licence)
+[![Rust 1.99](https://img.shields.io/badge/rust-1.99-orange.svg)](rust-toolchain.toml)
+[![no_std](https://img.shields.io/badge/no__std-yes-green.svg)](https://docs.rust-embedded.org/book/intro/no-std.html)
+
 Rust drivers for Microchip's PIC32C Arm microcontrollers, starting with the
 PIC32CK SG/GC (Cortex-M33) and PIC32CM-PL (Cortex-M0+).
 We don't know of any other Rust HAL that covers the PIC32C parts at this time.
