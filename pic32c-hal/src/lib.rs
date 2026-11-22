@@ -5,7 +5,8 @@
 //! Drivers for Microchip's PIC32C microcontrollers, so far the PIC32CK SG
 //! and GC (DS60001795), the PIC32CM SG00 (DS60001921) and PL10
 //! (DS40002667) and, in part, the PIC32CM GV00 (DS60001881: clocks, GPIO,
-//! the UART, the unique ID and the time driver), in Embassy's style. As in
+//! the UART, SPI, I2C, the unique ID and the time driver), in Embassy's
+//! style. As in
 //! embassy-stm32, `build.rs` turns the chip feature into cfgs naming its
 //! peripherals' IP versions (`sercom_v6`, `sercom_v1`, `port_v4`, ...), and
 //! the drivers and modules follow those, not the chip:
@@ -101,13 +102,13 @@ pub mod exti;
 #[cfg(any(fcw, nvmctrl))]
 pub mod flash;
 pub mod gpio;
-#[cfg(any(sercom_v6, sercom_v1))]
+#[cfg(any(sercom_v6, sercom_v1, sercom_v0))]
 pub mod i2c;
 pub mod mode;
 #[cfg(rtc_v3)]
 pub mod rtc;
 pub mod sercom;
-#[cfg(all(any(sercom_v6, sercom_v1), dma))]
+#[cfg(any(sercom_v6, sercom_v1, sercom_v0))]
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time;

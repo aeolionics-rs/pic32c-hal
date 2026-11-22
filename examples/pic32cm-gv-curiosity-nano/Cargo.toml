@@ -18,6 +18,16 @@ name = "uart_echo"
 test = false
 bench = false
 
+[[example]]
+name = "spi"
+test = false
+bench = false
+
+[[example]]
+name = "i2c"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
@@ -28,6 +38,9 @@ pic32c-hal = { path = "../../pic32c-hal", features = ["pic32cm3204gv00064", "rt"
 # What the examples use.
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embedded-hal = "1.0.0"
+# The bench programs' I2C sensor, on embedded-hal-async.
+sht4x = { version = "0.2.0", features = ["embedded-hal-async"] }
 panic-halt = "1.0.0"
 static_cell = "2.1.1"
 

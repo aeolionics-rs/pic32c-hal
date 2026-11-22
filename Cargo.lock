@@ -1357,8 +1357,10 @@ dependencies = [
  "critical-section",
  "embassy-executor",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "panic-halt",
  "pic32c-hal",
+ "sht4x",
  "static_cell",
 ]
 

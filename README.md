@@ -341,8 +341,10 @@ The plan is to publish to crates.io once these have stabilized.
   the CPU's rate; `gpio` (`port_v0`: `port_v1` with drive strength in place
   of slew control); `uart` blocking and `BufferedUart` (`sercom_v0`: the
   registers at other offsets, synchronisation in STATUS.SYNCBUSY, no ERROR
-  interrupt, no FIFO, no RTS/CTS); `uid` (its 128-bit serial number); and
-  the time driver on TC0 and TC1 paired as 32 bits, or with
+  interrupt, no FIFO, no RTS/CTS); `spi` blocking only (no DMA; SCK rated
+  to 8 MHz) and `i2c` blocking and on interrupts (Standard and Fast mode:
+  no Fast-mode Plus, so 400 kHz at most); `uid` (its 128-bit serial
+  number); and the time driver on TC0 and TC1 paired as 32 bits, or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (the SAM D20's
   TC: a read of the count is asked for first). The other modules aren't
   ported yet (see the to-do list).
@@ -351,15 +353,24 @@ The plan is to publish to crates.io once these have stabilized.
   PA12/PA13, the user LED PA24 lit high, the button PB17, the 32.768 kHz
   crystal on PA00/PA01), examples `blink` (the CPU at 8 MHz, or with
   `GV_DFLL=1` at build time at 47.97 MHz from the DFLL48M locked to the
-  crystal; the LED, a line a second with the time, and the serial number)
-  and `uart_echo` (`BufferedUart`). Build with `cargo build --release -p
+  crystal; the LED, a line a second with the time, and the serial number),
+  `uart_echo` (`BufferedUart`), `spi` (on the board's SPI pins, SERCOM5
+  PB02/PB03/PB00, in loopback) and `i2c` (on its I2C pins, SERCOM3
+  PA22/PA23, with a sensor wired; the PL10's `bme280` driver test doesn't
+  fit in 32 KB, so the Bosch part is read raw). Build with `cargo build --release -p
   pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-GV_DFP pack (the PL10 board crate's
   examples have the same names and target, so each build replaces the
   other's ELF). All pass on the board: 1,002-1,003 ms a tick (OSC8M about
   0.5 % fast against the host's clock), the DFLL48M locked coarse and fine with one
   flash wait state; 8,000 bytes echoed intact at 115,200 baud in one
-  write and in 64-byte writes, and 20,000 in 256-byte writes.
+  write and in 64-byte writes, and 20,000 in 256-byte writes; `spi` at 1
+  to 8 MHz (a faster request held to 7.995 MHz) from 47.97 MHz, the four
+  modes and LSB first, unequal lengths and in place, 256 bytes in 707 µs
+  at 8 MHz; and `i2c` against an SHT40 and a BMP280 on one module (its
+  4.7 kΩ pull-ups): the scan, a NACK, reads whole and in parts, on
+  interrupts at 100 and 400 kHz, 1 MHz refused, and the SHT40 by the
+  `sht4x` driver.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -469,10 +480,10 @@ PIC32CM SG00:
 
 PIC32CM GV00:
 
-- Not yet ported: `spi`, `i2c` (SERCOM v0), `flash` (its NVMCTRL: 64-byte
-  pages, 256-byte rows), `wdt`, `rtc`, `exti` and the NMI, `adc`; and the
-  DAC, which no other chip here has. No DMA controller, so no `dma` and no
-  DMA modes in the SERCOM drivers.
+- Not yet ported: `flash` (its NVMCTRL: 64-byte pages, 256-byte rows),
+  `wdt`, `rtc`, `exti` and the NMI, `adc`; and the DAC, which no other chip
+  here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
+  drivers: an async `spi` would need to run on its interrupts.
 - The time driver on TC3 to TC7.
 - SERCOM v0's TX on pad 2 (TXPO 1), which the UART's constructors don't
   offer yet (they take TX on pad 0, as on the other chips).

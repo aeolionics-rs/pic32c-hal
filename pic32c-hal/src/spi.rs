@@ -21,16 +21,27 @@
 //! [`Config::loopback`] the receiver reads the MOSI pad instead, through the
 //! pin, so a transfer reads back what it sent (a self-test needing no
 //! wiring; the pin still drives MOSI).
+//!
+//! `sercom_v0` (the GV00's, the SAM D20's) has its registers at other
+//! offsets and synchronises through STATUS.SYNCBUSY; with no DMA controller
+//! it has only [`Spi::new_blocking`] and [`Spi::new_blocking_txonly`], and
+//! no slew control. Its SCK is rated to 8 MHz.
 
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
 
+#[cfg(dma)]
 use embassy_futures::join::join;
 use embedded_hal::spi::{Mode, Phase, Polarity};
 
+#[cfg(dma)]
 use crate::dma::{self, AnyChannel, Request, Transfer};
-use crate::gpio::{AnyPin, Function, Slew, set_function, set_slew};
-use crate::mode::{Async, Blocking};
+use crate::gpio::{AnyPin, Function, set_function};
+#[cfg(not(port_v0))]
+use crate::gpio::{Slew, set_slew};
+#[cfg(dma)]
+use crate::mode::Async;
+use crate::mode::Blocking;
 use crate::uart::Instance;
 use crate::{Peri, gpio};
 
@@ -38,11 +49,27 @@ const CTRLA: usize = 0x00;
 const CTRLB: usize = 0x04;
 #[cfg(sercom_v6)]
 const CTRLC: usize = 0x08;
+#[cfg(not(sercom_v0))]
 const BAUD: usize = 0x0C;
+#[cfg(not(sercom_v0))]
 const INTFLAG: usize = 0x18;
+#[cfg(not(sercom_v0))]
 const STATUS: usize = 0x1A;
+#[cfg(not(sercom_v0))]
 const SYNCBUSY: usize = 0x1C;
+#[cfg(not(sercom_v0))]
 const DATA: usize = 0x28;
+#[cfg(sercom_v0)]
+const BAUD: usize = 0x0A;
+#[cfg(sercom_v0)]
+const INTFLAG: usize = 0x0E;
+#[cfg(sercom_v0)]
+const STATUS: usize = 0x10;
+#[cfg(sercom_v0)]
+const DATA: usize = 0x18;
+/// STATUS.SYNCBUSY (`sercom_v0`): any write still synchronising.
+#[cfg(sercom_v0)]
+const STATUS_SYNCBUSY: u16 = 1 << 15;
 
 const ENABLE: u32 = 1 << 1;
 /// MODE 3: SPI host.
@@ -67,7 +94,12 @@ const MAX_CORE_HZ: u32 = 100_000_000;
 /// `MSP_1`: 21.3 MHz, sending or full duplex). Only SERCOM0 on PC10-PC13 is
 /// rated faster; this driver doesn't use that yet. Measured: a W5500 on
 /// 15 cm leads reads back wrong at 24 MHz and right at 12.
+#[cfg(not(sercom_v0))]
 const MAX_SCK_HZ: u32 = 21_300_000;
+/// The GV00's (DS60001881 table 31-34, `MSP_1`: 8 MHz sending; full duplex
+/// depends on the other end).
+#[cfg(sercom_v0)]
+const MAX_SCK_HZ: u32 = 8_000_000;
 
 pub use crate::sercom::Pad;
 
@@ -101,7 +133,9 @@ pub struct Config {
     /// unterminated SCK ringing into extra clocks (measured: a W5500 on
     /// 15 cm leads slipped a bit in about one 2 KiB read in six at 12 and
     /// 20 MHz with `Fast`, none in 120 with `Slow4`; `Slow12` is too slow
-    /// for 20 MHz). Pins without slew control ignore it.
+    /// for 20 MHz). Pins without slew control ignore it. Not on `port_v0`
+    /// (the GV00), whose PORT has no slew control.
+    #[cfg(not(port_v0))]
     pub slew: Slew,
 }
 
@@ -114,8 +148,9 @@ impl Default for Config {
             frequency: 1_000_000,
             mode: embedded_hal::spi::MODE_0,
             bit_order: BitOrder::MsbFirst,
-            generator: if cfg!(sercom_v1) { 0 } else { 3 },
+            generator: if cfg!(any(sercom_v1, sercom_v0)) { 0 } else { 3 },
             loopback: false,
+            #[cfg(not(port_v0))]
             slew: Slew::Fast,
         }
     }
@@ -141,6 +176,7 @@ pub enum ConfigError {
 pub enum Error {
     Overrun,
     /// A DMA transfer failed.
+    #[cfg(dma)]
     Dma(dma::Error),
 }
 
@@ -148,6 +184,7 @@ impl embedded_hal::spi::Error for Error {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
         match self {
             Self::Overrun => embedded_hal::spi::ErrorKind::Overrun,
+            #[cfg(dma)]
             Self::Dma(_) => embedded_hal::spi::ErrorKind::Other,
         }
     }
@@ -156,20 +193,30 @@ impl embedded_hal::spi::Error for Error {
 /// An SPI host on a SERCOM.
 pub struct Spi<'d, M> {
     base: usize,
+    #[cfg(dma)]
     number: u8,
     gclk_channel: usize,
     /// MOSI's pad and MISO's (none: send only), which fix DOPO and DIPO.
     mosi_pad: u8,
     miso_pad: Option<u8>,
     /// SCK and MOSI, for their slew limit.
+    #[cfg_attr(port_v0, allow(dead_code, reason = "no slew control"))]
     sck: AnyPin,
+    #[cfg_attr(port_v0, allow(dead_code, reason = "no slew control"))]
     mosi: AnyPin,
     /// Whether the receiver is on (MISO, or loopback).
     receives: bool,
     frequency: u32,
+    #[cfg(dma)]
     dma: Option<(Peri<'d, AnyChannel>, Peri<'d, AnyChannel>)>,
     _mode: PhantomData<(&'d (), M)>,
 }
+
+/// The DMA channels a [`Spi`] takes: none without a DMA controller.
+#[cfg(dma)]
+type DmaChannels<'d> = (Peri<'d, AnyChannel>, Peri<'d, AnyChannel>);
+#[cfg(not(dma))]
+type DmaChannels<'d> = (core::convert::Infallible, PhantomData<&'d ()>);
 
 impl<'d> Spi<'d, Blocking> {
     /// An SPI host on `sercom`: SCK on pad 1, MOSI on pad `DO` (0 or 3),
@@ -207,6 +254,7 @@ impl<'d> Spi<'d, Blocking> {
     }
 }
 
+#[cfg(dma)]
 impl<'d> Spi<'d, Async> {
     /// An SPI host as [`Spi::new_blocking`], moving the data by DMA on
     /// `tx_dma` and `rx_dma`.
@@ -347,6 +395,7 @@ impl<'d> Spi<'d, Async> {
 }
 
 /// The transmit side of an exchange: `write`, or `count` zeros.
+#[cfg(dma)]
 fn start_tx<'a>(channel: &'a mut Peri<'_, AnyChannel>, request: Request, write: Option<&'a [u8]>, count: usize, data: *mut u8) -> Transfer<'a> {
     static ZERO: u8 = 0;
     // SAFETY: the SERCOM's DATA register, an SPI host making `request`.
@@ -369,26 +418,20 @@ const fn check_pads(mosi: u8, miso: Option<u8>) {
 
 impl<'d, M> Spi<'d, M> {
     #[allow(clippy::too_many_arguments, reason = "internal, from the constructors")]
-    fn start<T: Instance>(
-        sck: &impl gpio::SealedPin,
-        sck_function: Function,
-        mosi: &impl gpio::SealedPin,
-        mosi_function: Function,
-        mosi_pad: u8,
-        miso_pad: Option<u8>,
-        dma: Option<(Peri<'d, AnyChannel>, Peri<'d, AnyChannel>)>,
-        config: Config,
-    ) -> Result<Self, ConfigError> {
+    fn start<T: Instance>(sck: &impl gpio::SealedPin, sck_function: Function, mosi: &impl gpio::SealedPin, mosi_function: Function, mosi_pad: u8, miso_pad: Option<u8>, dma: Option<DmaChannels<'d>>, config: Config) -> Result<Self, ConfigError> {
         // Nothing is touched if `config` can't be met.
         validate(&config)?;
         let base = T::BASE;
-        #[cfg(sercom_v1)]
+        #[cfg(any(sercom_v1, sercom_v0))]
         crate::clocks::enable_apbc(T::APBC);
+        #[cfg(not(dma))]
+        let _ = dma;
         // The reset synchronises on the core clock, so that first.
         crate::clocks::enable_channel(T::state().gclk_channel, config.generator);
         crate::sercom::reset(base);
         let mut spi = Self {
             base,
+            #[cfg(dma)]
             number: T::NUMBER,
             gclk_channel: T::state().gclk_channel,
             mosi_pad,
@@ -397,6 +440,7 @@ impl<'d, M> Spi<'d, M> {
             mosi: AnyPin::from_pin_port(mosi.pin_port()),
             receives: false,
             frequency: 0,
+            #[cfg(dma)]
             dma,
             _mode: PhantomData,
         };
@@ -404,8 +448,11 @@ impl<'d, M> Spi<'d, M> {
         set_function(sck, sck_function);
         set_function(mosi, mosi_function);
         // After the functions, which leave PINCFG's other bits clear.
-        set_slew(sck, config.slew);
-        set_slew(mosi, config.slew);
+        #[cfg(not(port_v0))]
+        {
+            set_slew(sck, config.slew);
+            set_slew(mosi, config.slew);
+        }
         Ok(spi)
     }
 
@@ -422,7 +469,7 @@ impl<'d, M> Spi<'d, M> {
         let base = self.base;
         crate::clocks::enable_channel(self.gclk_channel, config.generator);
         write32(base, CTRLA, read32(base, CTRLA) & !ENABLE);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(base, SYNC_ENABLE);
         let out_pinout = if self.mosi_pad == 3 { 2 } else { 0 };
         let (dipo, receives) = match (config.loopback, self.miso_pad) {
             (true, _) => (self.mosi_pad, true),
@@ -442,14 +489,17 @@ impl<'d, M> Spi<'d, M> {
         write32(base, CTRLA, ctrla);
         // 8-bit characters, no hardware SS.
         write32(base, CTRLB, if receives { RXEN } else { 0 });
-        while read32(base, SYNCBUSY) & SYNC_CTRLB != 0 {}
+        wait_sync(base, SYNC_CTRLB);
         #[cfg(sercom_v6)]
         write32(base, CTRLC, 0);
         write8(base, BAUD, baud);
         write32(base, CTRLA, ctrla | ENABLE);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
-        set_slew(&self.sck, config.slew);
-        set_slew(&self.mosi, config.slew);
+        wait_sync(base, SYNC_ENABLE);
+        #[cfg(not(port_v0))]
+        {
+            set_slew(&self.sck, config.slew);
+            set_slew(&self.mosi, config.slew);
+        }
         self.receives = receives;
         self.frequency = clock_hz / (2 * (u32::from(baud) + 1));
         Ok(())
@@ -521,7 +571,19 @@ impl<M> Drop for Spi<'_, M> {
         // clock, whose ENABLE then waits for that clock to synchronise
         // (never, on the SG00).
         write32(self.base, CTRLA, read32(self.base, CTRLA) & !ENABLE);
-        while read32(self.base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(self.base, SYNC_ENABLE);
+    }
+}
+
+/// Waits for the writes in `mask` (SYNCBUSY's bits) to synchronise; on
+/// `sercom_v0`, for any write (STATUS.SYNCBUSY).
+fn wait_sync(base: usize, mask: u32) {
+    #[cfg(not(sercom_v0))]
+    while read32(base, SYNCBUSY) & mask != 0 {}
+    #[cfg(sercom_v0)]
+    {
+        let _ = mask;
+        while read16(base, STATUS) & STATUS_SYNCBUSY != 0 {}
     }
 }
 
@@ -583,10 +645,12 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Blocking> {
     }
 }
 
+#[cfg(dma)]
 impl embedded_hal::spi::ErrorType for Spi<'_, Async> {
     type Error = Error;
 }
 
+#[cfg(dma)]
 impl embedded_hal::spi::SpiBus for Spi<'_, Async> {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         self.blocking_transfer(words, &[])
@@ -610,6 +674,7 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Async> {
     }
 }
 
+#[cfg(dma)]
 impl embedded_hal_async::spi::SpiBus for Spi<'_, Async> {
     async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         Spi::read(self, words).await
@@ -633,11 +698,12 @@ impl embedded_hal_async::spi::SpiBus for Spi<'_, Async> {
     }
 }
 
-/// DATA, written: 32 bits wide on `sercom_v6`, 16 on `sercom_v1`.
+/// DATA, written: 32 bits wide on `sercom_v6`, 16 on `sercom_v1` and
+/// `sercom_v0`.
 fn write_data(base: usize, byte: u8) {
     #[cfg(sercom_v6)]
     write32(base, DATA, u32::from(byte));
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     write16(base, DATA, u16::from(byte));
 }
 
@@ -646,7 +712,7 @@ fn write_data(base: usize, byte: u8) {
 fn read_data(base: usize) -> u8 {
     #[cfg(sercom_v6)]
     return read32(base, DATA) as u8;
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     return read16(base, DATA) as u8;
 }
 
@@ -689,6 +755,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(sercom_v0))]
     fn baud_values() {
         // 48 MHz: 12 is BAUD 1, 1 MHz 23; never faster than asked, nor
         // than 21.3 MHz, so 24 and 30 MHz give 12.
@@ -702,6 +769,17 @@ mod tests {
         // The slowest from 48 MHz is 93.75 kHz (BAUD 255).
         assert_eq!(baud_value(48_000_000, 93_750), Some(255));
         assert_eq!(baud_value(48_000_000, 90_000), None);
+        assert_eq!(baud_value(48_000_000, 0), None);
+    }
+
+    #[test]
+    #[cfg(sercom_v0)]
+    fn baud_values() {
+        // 8 MHz at most: BAUD 2 from 48 MHz, whatever faster is asked.
+        assert_eq!(baud_value(48_000_000, 24_000_000), Some(2));
+        assert_eq!(baud_value(48_000_000, 8_000_000), Some(2));
+        assert_eq!(baud_value(8_000_000, 8_000_000), Some(0), "4 MHz, half the clock");
+        assert_eq!(baud_value(48_000_000, 1_000_000), Some(23));
         assert_eq!(baud_value(48_000_000, 0), None);
     }
 

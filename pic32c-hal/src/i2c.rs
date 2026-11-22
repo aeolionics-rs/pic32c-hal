@@ -20,6 +20,11 @@
 //! 25 to 35 ms (a stuck device, no pull-ups) gives [`Error::Timeout`] and a
 //! reset of the SERCOM; the blocking calls also give up after
 //! [`TIMEOUT_POLLS`] polls of a flag.
+//!
+//! `sercom_v0` (the GV00's, the SAM D20's): Standard and Fast mode only
+//! (up to 400 kHz, and only on the pins the data sheet's table 6-1 marks
+//! for I2C), the registers at other offsets, synchronisation through
+//! STATUS.SYNCBUSY; its one vector, `SERCOMn`, as on the PL10.
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -42,20 +47,43 @@ const CTRLA: usize = 0x00;
 const CTRLB: usize = 0x04;
 #[cfg(sercom_v6)]
 const CTRLC: usize = 0x08;
+#[cfg(not(sercom_v0))]
 const BAUD: usize = 0x0C;
+#[cfg(not(sercom_v0))]
 const INTENSET: usize = 0x16;
+#[cfg(not(sercom_v0))]
 const INTFLAG: usize = 0x18;
+#[cfg(not(sercom_v0))]
 const STATUS: usize = 0x1A;
+#[cfg(not(sercom_v0))]
 const SYNCBUSY: usize = 0x1C;
+#[cfg(not(sercom_v0))]
 const ADDR: usize = 0x24;
+#[cfg(not(sercom_v0))]
 const DATA: usize = 0x28;
+#[cfg(sercom_v0)]
+const BAUD: usize = 0x0A;
+#[cfg(sercom_v0)]
+const INTENSET: usize = 0x0D;
+#[cfg(sercom_v0)]
+const INTFLAG: usize = 0x0E;
+#[cfg(sercom_v0)]
+const STATUS: usize = 0x10;
+#[cfg(sercom_v0)]
+const ADDR: usize = 0x14;
+#[cfg(sercom_v0)]
+const DATA: usize = 0x18;
+/// STATUS.SYNCBUSY (`sercom_v0`): any write still synchronising.
+#[cfg(sercom_v0)]
+const STATUS_SYNCBUSY: u16 = 1 << 15;
 
 const ENABLE: u32 = 1 << 1;
 /// MODE 5: I2C host.
 const MODE_HOST: u32 = 0x5 << 2;
 /// SDAHOLD 1: 50 to 100 ns.
 const SDAHOLD_75NS: u32 = 0x1 << 20;
-/// SPEED 1: Fast-mode Plus.
+/// SPEED 1: Fast-mode Plus (`sercom_v0` has none).
+#[cfg(not(sercom_v0))]
 const SPEED_FM_PLUS: u32 = 0x1 << 24;
 /// SCL held low 25 to 35 ms: a bus error, with STATUS.LOWTOUT.
 const LOWTOUTEN: u32 = 1 << 30;
@@ -75,7 +103,15 @@ const RXNACK: u16 = 1 << 2;
 const BUSSTATE_SHIFT: u16 = 4;
 const BUSSTATE_IDLE: u16 = 0b01;
 const LOWTOUT: u16 = 1 << 6;
+/// STATUS.LENERR (`sercom_v0` has none: it has no length counter).
+#[cfg(not(sercom_v0))]
 const LENERR: u16 = 1 << 10;
+
+/// SCL's highest rate: Fast-mode Plus, or Fast mode on `sercom_v0`.
+#[cfg(not(sercom_v0))]
+const MAX_FREQUENCY: u32 = 1_000_000;
+#[cfg(sercom_v0)]
+const MAX_FREQUENCY: u32 = 400_000;
 
 /// The SERCOM core clock's highest rate.
 const MAX_CORE_HZ: u32 = 100_000_000;
@@ -87,7 +123,7 @@ pub const TIMEOUT_POLLS: u32 = 2_000_000;
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
-    /// SCL's rate: up to 1 MHz (Fast-mode Plus).
+    /// SCL's rate: up to 1 MHz (Fast-mode Plus; 400 kHz on `sercom_v0`).
     pub frequency: u32,
     /// The bus's rise time in nanoseconds, which the SCL period includes:
     /// 100 ns for a short bus with strong pull-ups, up to 300 ns (Fast
@@ -105,7 +141,7 @@ impl Default for Config {
         Self {
             frequency: 100_000,
             rise_ns: 100,
-            generator: if cfg!(sercom_v1) { 0 } else { 3 },
+            generator: if cfg!(any(sercom_v1, sercom_v0)) { 0 } else { 3 },
         }
     }
 }
@@ -118,8 +154,8 @@ pub enum ConfigError {
     NoClock,
     /// The generator runs over 100 MHz.
     ClockTooFast,
-    /// The frequency is over 1 MHz, or too high or too low for the
-    /// generator to divide to.
+    /// The frequency is over 1 MHz (400 kHz on `sercom_v0`), or too high or
+    /// too low for the generator to divide to.
     Frequency,
 }
 
@@ -255,7 +291,7 @@ enum Wait {
 
 impl<M> I2c<'_, M> {
     fn start<T: Instance>(sda: &impl SealedPin, sda_function: Function, scl: &impl SealedPin, scl_function: Function, config: Config) -> Result<Self, ConfigError> {
-        #[cfg(sercom_v1)]
+        #[cfg(any(sercom_v1, sercom_v0))]
         crate::clocks::enable_apbc(T::APBC);
         let mut i2c = Self {
             base: T::BASE,
@@ -285,7 +321,11 @@ impl<M> I2c<'_, M> {
             return Err(ConfigError::ClockTooFast);
         }
         let (baud, frequency) = baud_value(clock_hz, config.frequency, config.rise_ns).ok_or(ConfigError::Frequency)?;
-        self.ctrla = MODE_HOST | SDAHOLD_75NS | LOWTOUTEN | if config.frequency > 400_000 { SPEED_FM_PLUS } else { 0 };
+        #[cfg(not(sercom_v0))]
+        let speed = if config.frequency > 400_000 { SPEED_FM_PLUS } else { 0 };
+        #[cfg(sercom_v0)]
+        let speed = 0;
+        self.ctrla = MODE_HOST | SDAHOLD_75NS | LOWTOUTEN | speed;
         self.baud = baud;
         self.frequency = frequency;
         crate::clocks::enable_channel(self.gclk_channel, config.generator);
@@ -301,15 +341,21 @@ impl<M> I2c<'_, M> {
         write32(self.base, CTRLB, 0);
         #[cfg(sercom_v6)]
         write32(self.base, CTRLC, 0);
+        // BAUD and BAUDLOW: a word on the newer SERCOMs, a halfword at a
+        // halfword boundary on `sercom_v0`.
+        #[cfg(not(sercom_v0))]
         write32(self.base, BAUD, self.baud);
+        #[cfg(sercom_v0)]
+        #[expect(clippy::cast_possible_truncation, reason = "BAUD and BAUDLOW, 8 bits each")]
+        write16(self.base, BAUD, self.baud as u16);
         write32(self.base, CTRLA, self.ctrla | ENABLE);
-        while read32(self.base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(self.base, SYNC_ENABLE);
         write16(self.base, STATUS, BUSSTATE_IDLE << BUSSTATE_SHIFT);
         self.sync_sysop();
     }
 
     fn sync_sysop(&self) {
-        while read32(self.base, SYNCBUSY) & SYNC_SYSOP != 0 {}
+        wait_sync(self.base, SYNC_SYSOP);
     }
 
     /// SCL's rate, as BAUD gives it with the configured rise time.
@@ -410,7 +456,7 @@ impl<M> I2c<'_, M> {
             Err(Error::Bus)
         } else if status & ARBLOST != 0 {
             Err(Error::ArbitrationLost)
-        } else if status & LENERR != 0 {
+        } else if length_error(status) {
             Err(Error::Bus)
         } else {
             Ok(flags)
@@ -420,7 +466,12 @@ impl<M> I2c<'_, M> {
     /// Sends a (repeated) start and `address` with the direction, and waits
     /// for its acknowledge.
     async fn address(&self, address: u8, read: bool, wait: Wait) -> Result<(), Error> {
+        // ADDR: a word on the newer SERCOMs (with LEN and its enable clear),
+        // a byte on `sercom_v0`.
+        #[cfg(not(sercom_v0))]
         write32(self.base, ADDR, (u32::from(address) << 1) | u32::from(read));
+        #[cfg(sercom_v0)]
+        write8(self.base, ADDR, (address << 1) | u8::from(read));
         self.sync_sysop();
         let flags = self.wait(wait).await?;
         // A write's address ends with MB; a read's with SB once the first
@@ -517,7 +568,31 @@ impl<M> Drop for I2c<'_, M> {
         // clock, whose ENABLE then waits for that clock to synchronise
         // (never, on the SG00).
         write32(self.base, CTRLA, read32(self.base, CTRLA) & !ENABLE);
-        while read32(self.base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(self.base, SYNC_ENABLE);
+    }
+}
+
+/// STATUS.LENERR: a transfer's length counter disagreed (`sercom_v0` has
+/// no counter, so never).
+const fn length_error(status: u16) -> bool {
+    #[cfg(not(sercom_v0))]
+    return status & LENERR != 0;
+    #[cfg(sercom_v0)]
+    {
+        let _ = status;
+        false
+    }
+}
+
+/// Waits for the writes in `mask` (SYNCBUSY's bits) to synchronise; on
+/// `sercom_v0`, for any write (STATUS.SYNCBUSY).
+fn wait_sync(base: usize, mask: u32) {
+    #[cfg(not(sercom_v0))]
+    while read32(base, SYNCBUSY) & mask != 0 {}
+    #[cfg(sercom_v0)]
+    {
+        let _ = mask;
+        while read16(base, STATUS) & STATUS_SYNCBUSY != 0 {}
     }
 }
 
@@ -526,7 +601,7 @@ impl<M> Drop for I2c<'_, M> {
 /// low for as long (BAUD alone); above, low twice as long as high, as
 /// Fast-mode Plus asks (BAUDLOW).
 fn baud_value(clock_hz: u32, frequency: u32, rise_ns: u32) -> Option<(u32, u32)> {
-    if frequency == 0 || frequency > 1_000_000 {
+    if frequency == 0 || frequency > MAX_FREQUENCY {
         return None;
     }
     let rise = u64::from(clock_hz) * u64::from(rise_ns) / 1_000_000_000;
@@ -585,11 +660,12 @@ impl embedded_hal_async::i2c::I2c<SevenBitAddress> for I2c<'_, Async> {
     }
 }
 
-/// DATA, written: 32 bits wide on `sercom_v6`, 8 on `sercom_v1`.
+/// DATA, written: 32 bits wide on `sercom_v6`, 8 on `sercom_v1` and
+/// `sercom_v0`.
 fn write_data(base: usize, byte: u8) {
     #[cfg(sercom_v6)]
     write32(base, DATA, u32::from(byte));
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     write8(base, DATA, byte);
 }
 
@@ -601,7 +677,7 @@ fn read_data(base: usize) -> u8 {
         let byte = read32(base, DATA) as u8;
         byte
     }
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     read8(base, DATA)
 }
 
@@ -644,6 +720,17 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(sercom_v0)]
+    fn baud_values_v0() {
+        assert_eq!(baud_value(48_000_000, 100_000, 100), Some((233, 100_000)));
+        let (baud, rate) = baud_value(48_000_000, 400_000, 100).unwrap();
+        assert_eq!((baud & 0xFF, baud >> 8), (53, 0));
+        assert!(rate <= 400_000 && rate > 390_000, "{rate}");
+        assert_eq!(baud_value(48_000_000, 1_000_000, 100), None, "no Fast-mode Plus");
+    }
+
+    #[test]
+    #[cfg(not(sercom_v0))]
     fn baud_values() {
         // 48 MHz, 100 ns rise (4.8 cycles, 4): 100 kHz needs 480 cycles,
         // 10 + 4 + 2 * 233.
