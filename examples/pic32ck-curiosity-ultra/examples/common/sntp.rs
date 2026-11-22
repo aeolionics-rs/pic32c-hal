@@ -28,8 +28,9 @@ use core::net::{IpAddr, SocketAddr};
 
 use critical_section::Mutex;
 use embassy_net::dns::DnsQueryType;
-use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{IpAddress, Stack};
+use embassy_net::iface::Iface;
+use embassy_net::udp::UdpSocket;
+use embassy_net::wire::ListenSocketAddr;
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 
 use pic32ck_curiosity_ultra::uart::Uart;
@@ -100,7 +101,7 @@ impl sntpc::NtpTimestampGenerator for Clock {
 }
 
 /// embassy-net's UDP socket as `sntpc` wants it.
-struct Socket<'a>(UdpSocket<'a>);
+struct Socket<'d>(UdpSocket<'d>);
 
 impl sntpc::NtpUdpSocket for Socket<'_> {
     async fn send_to(&self, buf: &[u8], addr: SocketAddr) -> sntpc::Result<usize> {
@@ -110,7 +111,7 @@ impl sntpc::NtpUdpSocket for Socket<'_> {
 
     async fn recv_from(&self, buf: &mut [u8]) -> sntpc::Result<(usize, SocketAddr)> {
         let (n, meta) = self.0.recv_from(buf).await.map_err(|_| sntpc::Error::Network)?;
-        Ok((n, SocketAddr::from(meta.endpoint)))
+        Ok((n, SocketAddr::from(meta.remote_addr)))
     }
 }
 
@@ -142,7 +143,7 @@ fn apply(source: Source, result: &sntpc::NtpResult) -> Sync {
 }
 
 /// Tries the gateway, then the pool; the sync, or `None` if nothing answered.
-async fn sync_once(stack: Stack<'_>, socket: &Socket<'_>) -> Option<Sync> {
+async fn sync_once(iface: Iface<'_>, socket: &Socket<'_>) -> Option<Sync> {
     // `SNTP_TEST` at build time skips sources, to test the fallbacks:
     // `pool` skips the gateway, `none` skips everything (clockless).
     let test = option_env!("SNTP_TEST");
@@ -150,20 +151,17 @@ async fn sync_once(stack: Stack<'_>, socket: &Socket<'_>) -> Option<Sync> {
         return None;
     }
     if test != Some("pool")
-        && let Some(gateway) = stack.config_v4().and_then(|c| c.gateway)
+        && let Some(gateway) = crate::net::gateway_v4(iface)
     {
         let server = IpAddr::V4(gateway);
         if let Some(result) = ask(socket, server).await {
             return Some(apply(Source::Gateway(server), &result));
         }
     }
-    match stack.dns_query(POOL, DnsQueryType::A).await {
+    match iface.stack().dns_query(POOL, DnsQueryType::A).await {
         Ok(addresses) => {
             for address in addresses {
-                let server = match address {
-                    IpAddress::Ipv4(v4) => IpAddr::V4(v4),
-                    IpAddress::Ipv6(v6) => IpAddr::V6(v6),
-                };
+                let server = IpAddr::from(address);
                 if let Some(result) = ask(socket, server).await {
                     return Some(apply(Source::Pool(server), &result));
                 }
@@ -177,25 +175,22 @@ async fn sync_once(stack: Stack<'_>, socket: &Socket<'_>) -> Option<Sync> {
 }
 
 /// Keeps the clock set, forever. Run it beside the servers.
-pub async fn run(stack: Stack<'_>) -> ! {
-    let mut rx_meta = [PacketMetadata::EMPTY; 2];
-    let mut rx = [0; 128];
-    let mut tx_meta = [PacketMetadata::EMPTY; 2];
-    let mut tx = [0; 128];
-    let mut udp = UdpSocket::new(stack, &mut rx_meta, &mut rx, &mut tx_meta, &mut tx);
+pub async fn run(iface: Iface<'_>) -> ! {
+    // Datagrams wait in the stack's pool: the socket holds no buffers.
+    let mut udp = UdpSocket::new(iface.stack()).expect("a UDP socket (xarxa's udp-socket-count-N)");
     // An ephemeral local port.
-    let _ = udp.bind(0);
+    let _ = udp.bind(0, ListenSocketAddr::UNSPECIFIED);
     let socket = Socket(udp);
     // IPv4 from DHCP (the gateway, and the DNS server for the pool): a
     // SLAAC address alone makes `wait_config_up` return first.
     let _ = with_timeout(Duration::from_secs(20), async {
-        while stack.config_v4().is_none() {
+        while crate::net::v4(iface).is_none() {
             Timer::after(Duration::from_millis(250)).await;
         }
     })
     .await;
     loop {
-        let wait = if let Some(sync) = sync_once(stack, &socket).await {
+        let wait = if let Some(sync) = sync_once(iface, &socket).await {
             let _ = writeln!(
                 Uart,
                 "sntp: {:?}, stratum {}, offset {} us, roundtrip {} us; Unix time {} s",

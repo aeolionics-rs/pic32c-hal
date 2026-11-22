@@ -240,8 +240,8 @@ impl Core<'_> {
 }
 
 /// An established TLS connection.
-pub struct TlsSocket<'s, 'b> {
-    socket: TcpSocket<'s>,
+pub struct TlsSocket<'s, 'd, 'b> {
+    socket: TcpSocket<'s, 'd>,
     core: RefCell<Core<'b>>,
     tx: &'b mut [u8],
     out: &'b mut [u8],
@@ -252,14 +252,14 @@ pub struct TlsSocket<'s, 'b> {
 ///
 /// # Errors
 /// The handshake's failure, or the TCP connection's.
-pub async fn accept<'s, 'b>(
-    mut socket: TcpSocket<'s>,
+pub async fn accept<'s, 'd, 'b>(
+    mut socket: TcpSocket<'s, 'd>,
     config: Arc<ServerConfig>,
     rx: &'b mut [u8],
     plain: &'b mut [u8],
     tx: &'b mut [u8],
     out: &'b mut [u8],
-) -> Result<TlsSocket<'s, 'b>, Error> {
+) -> Result<TlsSocket<'s, 'd, 'b>, Error> {
     let mut core = Core {
         conn: UnbufferedServerConnection::new(config)?,
         rx,
@@ -304,19 +304,19 @@ pub async fn accept<'s, 'b>(
     }
 }
 
-impl ErrorType for TlsSocket<'_, '_> {
+impl ErrorType for TlsSocket<'_, '_, '_> {
     type Error = Error;
 }
 
 /// The reading half.
-pub struct TlsReader<'a, 'b> {
-    reader: TcpReader<'a>,
+pub struct TlsReader<'a, 'd, 'b> {
+    reader: TcpReader<'a, 'd>,
     core: &'a RefCell<Core<'b>>,
 }
 
 /// The writing half.
-pub struct TlsWriter<'a, 'b> {
-    writer: TcpWriter<'a>,
+pub struct TlsWriter<'a, 'd, 'b> {
+    writer: TcpWriter<'a, 'd>,
     core: &'a RefCell<Core<'b>>,
     tx: &'a mut [u8],
     /// Plaintext gathered into the next record, up to one record's worth.
@@ -324,15 +324,15 @@ pub struct TlsWriter<'a, 'b> {
     out_len: &'a mut usize,
 }
 
-impl ErrorType for TlsReader<'_, '_> {
+impl ErrorType for TlsReader<'_, '_, '_> {
     type Error = Error;
 }
 
-impl ErrorType for TlsWriter<'_, '_> {
+impl ErrorType for TlsWriter<'_, '_, '_> {
     type Error = Error;
 }
 
-impl Read for TlsReader<'_, '_> {
+impl Read for TlsReader<'_, '_, '_> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         if buf.is_empty() {
             return Ok(0);
@@ -383,7 +383,7 @@ impl Read for TlsReader<'_, '_> {
 }
 
 /// Sends what the reader left waiting.
-async fn send_pending(writer: &mut TcpWriter<'_>, core: &RefCell<Core<'_>>) -> Result<(), Error> {
+async fn send_pending(writer: &mut TcpWriter<'_, '_>, core: &RefCell<Core<'_>>) -> Result<(), Error> {
     let mut pending = [0u8; PENDING];
     let n = {
         let mut core = core.borrow_mut();
@@ -400,7 +400,7 @@ async fn send_pending(writer: &mut TcpWriter<'_>, core: &RefCell<Core<'_>>) -> R
 
 /// Encrypts all of `data` into records (as few as `tx` allows) and sends
 /// them.
-async fn seal(writer: &mut TcpWriter<'_>, core: &RefCell<Core<'_>>, tx: &mut [u8], mut data: &[u8]) -> Result<(), Error> {
+async fn seal(writer: &mut TcpWriter<'_, '_>, core: &RefCell<Core<'_>>, tx: &mut [u8], mut data: &[u8]) -> Result<(), Error> {
     send_pending(writer, core).await?;
     while !data.is_empty() {
         let mut filled = 0;
@@ -418,7 +418,7 @@ async fn seal(writer: &mut TcpWriter<'_>, core: &RefCell<Core<'_>>, tx: &mut [u8
     Ok(())
 }
 
-impl TlsWriter<'_, '_> {
+impl TlsWriter<'_, '_, '_> {
     /// The plaintext one record carries here.
     fn capacity(&self) -> usize {
         self.out.len().min(self.tx.len() - OVERHEAD).min(16_384)
@@ -431,7 +431,7 @@ impl TlsWriter<'_, '_> {
     }
 }
 
-impl embedded_io_async::Write for TlsWriter<'_, '_> {
+impl embedded_io_async::Write for TlsWriter<'_, '_, '_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         let capacity = self.capacity();
         if *self.out_len == 0 && buf.len() >= capacity {
@@ -458,7 +458,7 @@ impl embedded_io_async::Write for TlsWriter<'_, '_> {
     }
 }
 
-impl Write for TlsWriter<'_, '_> {
+impl Write for TlsWriter<'_, '_, '_> {
     async fn write_with<F: FnOnce(picoserve::mem::BorrowedCursor<'_>) -> R, R>(&mut self, f: F) -> Result<R, Error> {
         let capacity = self.capacity();
         if *self.out_len == capacity {
@@ -471,14 +471,14 @@ impl Write for TlsWriter<'_, '_> {
     }
 }
 
-impl<'b> picoserve::io::Socket<picoserve::EmbassyRuntime> for TlsSocket<'_, 'b> {
+impl<'d, 'b> picoserve::io::Socket<picoserve::EmbassyRuntime> for TlsSocket<'_, 'd, 'b> {
     type Error = Error;
     type ReadHalf<'a>
-        = TlsReader<'a, 'b>
+        = TlsReader<'a, 'd, 'b>
     where
         Self: 'a;
     type WriteHalf<'a>
-        = TlsWriter<'a, 'b>
+        = TlsWriter<'a, 'd, 'b>
     where
         Self: 'a;
 

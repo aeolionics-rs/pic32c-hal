@@ -3,6 +3,7 @@ name = "pic32cm-sg00-curiosity-pro"
 description = "Board support for Microchip's PIC32CM SG00 Curiosity Pro (EV53V42A), with pic32c-hal's SG00 bench programs as examples"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

@@ -38,4 +38,5 @@ unknown-registry = "deny"
 unknown-git = "deny"
 
 [sources.allow-org]
-github = ["aeolionics-rs"]
+# Our libraries; our forks of others' (picoserve, edge-net); embassy main.
+github = ["aeolionics-rs", "aeolionics-contrib", "embassy-rs"]

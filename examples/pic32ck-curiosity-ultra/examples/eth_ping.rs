@@ -4,7 +4,7 @@
 
 //! `pic32c-hal`'s `eth` with embassy-net, on the board's KSZ8091 PHY (RMII,
 //! its reset on PD21) and RJ45: brings the link up, gets an IPv4 address by
-//! DHCP and an IPv6 one by SLAAC, and answers ping (smoltcp's automatic
+//! DHCP and an IPv6 one by SLAAC, and answers ping (embassy-net's automatic
 //! echo replies). The MAC address is locally administered, from the chip's
 //! unique ID. The PHY, the link, the addresses and the stack's state go out
 //! over the virtual COM port; then a line every 10 s. Ping it from the host.
@@ -17,12 +17,19 @@
 
 use core::fmt::Write;
 
+#[path = "common/net.rs"]
+mod net;
+
 use pic32ck_curiosity_ultra::clocks;
 use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
+use core::net::{Ipv4Addr, SocketAddr};
+
 use embassy_net::dns::DnsQueryType;
-use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{Config, ConfigV6, DhcpConfig, IpAddress, IpEndpoint, Runner, StackResources};
+use embassy_net::iface::dhcpv4::DhcpConfig;
+use embassy_net::iface::slaac::SlaacConfig;
+use embassy_net::udp::UdpSocket;
+use embassy_net::{Runner, Stack, StackStorage, StaticPool};
 use embassy_time::{Duration, Timer, with_timeout};
 use panic_halt as _;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
@@ -37,10 +44,14 @@ bind_interrupts!(struct Irqs {
 });
 
 static QUEUE: StaticCell<PacketQueue<4, 8>> = StaticCell::new();
-static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
+static ETHERNET: StaticCell<Ethernet<'static>> = StaticCell::new();
+static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
+/// The stack's packets: the MAC's receive ring holds eight, its transmit
+/// ring up to four, and the rest are the stack's.
+static POOL: StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }> = StaticPool::new();
 
 #[embassy_executor::task]
-async fn net(mut runner: Runner<'static, Ethernet<'static>>) -> ! {
+async fn net(mut runner: Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -70,30 +81,28 @@ async fn main(spawner: Spawner) {
     let (phy, phy_id) = ethernet.phy();
     let _ = writeln!(log, "PHY at MDIO address {phy}, ID {phy_id:#010x}");
 
-    let mut config = Config::dhcpv4(DhcpConfig::default());
-    config.ipv6 = ConfigV6::Slaac;
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = embassy_net::new(ethernet, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let iface = stack.add_iface_borrowed(ETHERNET.init(ethernet)).unwrap();
+    iface.set_dhcpv4(Some(DhcpConfig::default())).unwrap();
+    iface.set_slaac(Some(SlaacConfig::default())).unwrap();
     spawner.spawn(net(runner).unwrap());
 
     let _ = writeln!(log, "waiting for the link and an address");
-    if with_timeout(Duration::from_secs(30), stack.wait_config_up()).await.is_err() {
-        let _ = writeln!(log, "no address in 30 s (link {})", if stack.is_link_up() { "up" } else { "down" });
+    if with_timeout(Duration::from_secs(30), iface.wait_config_up()).await.is_err() {
+        let _ = writeln!(log, "no address in 30 s (link {})", if iface.is_link_up() { "up" } else { "down" });
     }
     // A datagram to the host every 10 s (port 9000), so the board ARPs for
-    // it and the host learns the board's address.
-    let mut rx_meta = [PacketMetadata::EMPTY; 4];
-    let mut rx_buffer = [0; 512];
-    let mut tx_meta = [PacketMetadata::EMPTY; 4];
-    let mut tx_buffer = [0; 512];
-    let mut udp = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
-    let _ = udp.bind(9000);
-    let host = IpEndpoint::new(IpAddress::v4(192, 168, 17, 11), 9000);
+    // it and the host learns the board's address. Datagrams wait in the
+    // stack's pool: the socket has no buffers of its own.
+    let mut udp = UdpSocket::new(stack).unwrap();
+    let _ = udp.bind(9000, embassy_net::wire::ListenSocketAddr::UNSPECIFIED);
+    let host = SocketAddr::new(Ipv4Addr::new(192, 168, 17, 11).into(), 9000);
     let mut seconds = 0u32;
     loop {
-        let v4 = stack.config_v4();
-        let v6 = stack.config_v6();
-        let _ = writeln!(log, "[{seconds} s] link {}; IPv4 {:?}; IPv6 {:?}", if stack.is_link_up() { "up" } else { "down" }, v4.map(|c| c.address), v6.map(|c| c.address));
+        let v4 = net::v4(iface);
+        let v6 = net::v6(iface);
+        let _ = writeln!(log, "[{seconds} s] link {}; IPv4 {v4:?}; IPv6 {v6:?}; link-local {:?}", if iface.is_link_up() { "up" } else { "down" }, net::link_local(iface));
         let dns = stack.dns_query("router.bench.aeolionics.net", DnsQueryType::A).await;
         let _ = writeln!(log, "  DNS router.bench.aeolionics.net: {dns:?}");
         let sent = udp.send_to(b"hello from the PIC32CK", host).await;

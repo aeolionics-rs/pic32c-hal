@@ -29,11 +29,12 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use embassy_executor::Spawner;
 use embassy_futures::join::join4;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{ConfigV4, Ipv4Cidr, Ipv6Cidr, Stack, StackResources, StaticConfigV4, StaticConfigV6};
+use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::wire::{IpCidr, Ipv4Cidr, Ipv6Cidr};
+use embassy_net::{Stack, StackStorage, StaticPool};
 use embassy_time::{Duration, Timer};
-use embassy_usb::class::cdc_ncm::{self, CdcNcmClass};
-use embassy_usb::{Builder, UsbDevice};
+use embassy_usb::class::cdc_ncm::device::{self as cdc_ncm, CdcNcmClass};
+use embassy_usb::{Builder, UsbDevice, UsbDeviceSpeed};
 use embedded_io_async::Write as _;
 use panic_halt as _;
 use pic32c_hal::{bind_interrupts, uid, usbhs};
@@ -47,17 +48,18 @@ bind_interrupts!(struct Irqs {
 });
 
 const MTU: usize = 1514;
-/// The bulk endpoints' packet size at high speed.
-const PACKET: u16 = 512;
 type Driver = usbhs::Driver<'static>;
-type NetDevice = cdc_ncm::embassy_net::Device<'static, MTU>;
+type NetDevice = cdc_ncm::embassy_net::Device<'static>;
 
 static CONFIG_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static BOS_DESCRIPTOR: StaticCell<[u8; 256]> = StaticCell::new();
 static CONTROL_BUF: StaticCell<[u8; 128]> = StaticCell::new();
 static NCM_STATE: StaticCell<cdc_ncm::State<'static>> = StaticCell::new();
-static NET_STATE: StaticCell<cdc_ncm::embassy_net::State<MTU, 4, 4>> = StaticCell::new();
-static RESOURCES: StaticCell<StackResources<6>> = StaticCell::new();
+static NET_STATE: StaticCell<cdc_ncm::embassy_net::State<4, 4>> = StaticCell::new();
+static NET_DEVICE: StaticCell<NetDevice> = StaticCell::new();
+static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
+/// The stack's packets, the class's queues' among them (four each way).
+static POOL: StaticPool<MTU, 16> = StaticPool::new();
 
 static ECHOED: AtomicUsize = AtomicUsize::new(0);
 static DISCARDED: AtomicUsize = AtomicUsize::new(0);
@@ -69,12 +71,12 @@ async fn usb_task(mut device: UsbDevice<'static, Driver>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn ncm_task(runner: cdc_ncm::embassy_net::Runner<'static, Driver, MTU>) -> ! {
+async fn ncm_task(runner: cdc_ncm::embassy_net::Runner<'static, Driver>) -> ! {
     runner.run().await
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, NetDevice>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -89,13 +91,18 @@ fn link_local_v4(mac: [u8; 6]) -> Ipv4Addr {
 }
 
 /// One connection at a time on `port`, running `serve` on it.
-async fn service<F: AsyncFnMut(&mut TcpSocket<'_>)>(stack: Stack<'static>, port: u16, mut serve: F) -> ! {
+async fn service<F: AsyncFnMut(&mut TcpSocket<'_, 'static>)>(stack: Stack<'static>, port: u16, mut serve: F) -> ! {
     let mut rx = [0; 8192];
     let mut tx = [0; 8192];
+    // The port's queue of connection attempts, which a socket takes one
+    // from (xarxa's `tcp-listener-count-N` sets how many ports listen).
+    let mut listener = TcpListener::new(stack).unwrap();
+    listener.listen(port).unwrap();
     loop {
-        let mut socket = TcpSocket::new(stack, &mut rx, &mut tx);
+        let Ok(token) = listener.accept().await else { continue };
+        let mut socket = TcpSocket::new(stack, &mut rx, &mut tx).unwrap();
         socket.set_timeout(Some(Duration::from_secs(10)));
-        if socket.accept(port).await.is_err() {
+        if socket.accept(token).await.is_err() {
             continue;
         }
         serve(&mut socket).await;
@@ -124,18 +131,21 @@ async fn main(spawner: Spawner) {
     config.serial_number = Some("pic32ck-curiosity-ultra-ncm");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    // 512-byte bulk packets.
+    config.max_speed = UsbDeviceSpeed::High;
 
     let driver = usbhs::Driver::new(p.USBHS, Irqs, usbhs::Config::default());
     let mut builder = Builder::new(driver, config, CONFIG_DESCRIPTOR.init([0; 256]), BOS_DESCRIPTOR.init([0; 256]), &mut [], CONTROL_BUF.init([0; 128]));
-    let ncm = CdcNcmClass::new(&mut builder, NCM_STATE.init(cdc_ncm::State::new()), host_mac, PACKET);
-    let (ncm_runner, device) = ncm.into_embassy_net_device::<MTU, 4, 4>(NET_STATE.init(cdc_ncm::embassy_net::State::new()), mac);
+    let ncm = CdcNcmClass::new(&mut builder, NCM_STATE.init(cdc_ncm::State::new()), cdc_ncm::Config::new(host_mac));
+    let (ncm_runner, device) = ncm.into_embassy_net_device::<4, 4>(NET_STATE.init(cdc_ncm::embassy_net::State::new()), mac, MTU);
     spawner.spawn(usb_task(builder.build()).unwrap());
     spawner.spawn(ncm_task(ncm_runner).unwrap());
 
-    let mut net_config = embassy_net::Config::ipv6_static(StaticConfigV6 { address: Ipv6Cidr::new(address, 64), gateway: None, dns_servers: heapless::Vec::new() });
-    net_config.ipv4 = ConfigV4::Static(StaticConfigV4 { address: Ipv4Cidr::new(address_v4, 16), gateway: None, dns_servers: heapless::Vec::new() });
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = embassy_net::new(device, net_config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let iface = stack.add_iface_borrowed(NET_DEVICE.init(device)).unwrap();
+    iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(address, 64))).unwrap();
+    iface.add_ip_addr(IpCidr::V4(Ipv4Cidr::new(address_v4, 16))).unwrap();
     spawner.spawn(net_task(runner).unwrap());
     let _ = writeln!(log, "MAC {mac:02x?}; IPv6 {address}; IPv4 {address_v4}");
 
@@ -178,8 +188,8 @@ async fn main(spawner: Spawner) {
         let mut up = false;
         loop {
             Timer::after_secs(1).await;
-            if stack.is_link_up() != up {
-                up = stack.is_link_up();
+            if iface.is_link_up() != up {
+                up = iface.is_link_up();
                 let _ = writeln!(log, "link {}, high speed: {}", if up { "up" } else { "down" }, usbhs::is_high_speed());
             }
             let _ = writeln!(

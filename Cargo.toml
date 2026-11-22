@@ -5,6 +5,9 @@ members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-pl10-curiosity-
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# embassy main uses core::mem::DropGuard (embassy-embedded-hal, and
+# embassy-net with dns), stable from 1.100.
+rust-version = "1.100"
 license = "MIT OR Apache-2.0"
 
 [workspace.lints.clippy]
@@ -20,3 +23,31 @@ debug = true
 opt-level = "s"
 lto = "fat"
 codegen-units = 1
+
+# Spike: embassy `main`, where embassy-net runs on xarxa instead of smoltcp.
+# Every embassy crate the workspace reaches is patched to the same revision:
+# a crates.io embassy-time-driver beside a git one is two crates with the
+# same `links`, which Cargo refuses.
+[patch.crates-io]
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+
+# Ported to embassy-net on xarxa, in our forks: picoserve 0.21.0 (its
+# `embassy` glue on the new TcpSocket and TcpListener, sammhicks/picoserve#122)
+# and edge-nal-embassy (UDP and DNS; TCP not yet). `.cargo/local.toml` can
+# point these at checkouts beside this repository.
+picoserve = { git = "https://github.com/aeolionics-contrib/picoserve", branch = "xarxa-0.21" }
+edge-nal-embassy = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }
+# edge-nal-embassy takes the fork's edge-nal; this keeps edge-mdns on the same
+# one.
+edge-nal = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }
