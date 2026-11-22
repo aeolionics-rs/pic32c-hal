@@ -53,3 +53,32 @@ macro_rules! impl_pads {
 }
 
 pub(crate) use impl_pads;
+
+/// Resets the SERCOM at `base` (CTRLA.SWRST), disabling it first with its
+/// mode kept if it is enabled: SWRST written alone also writes ENABLE 0 with
+/// MODE 0, a USART on an external clock, and on the SG00 the reset of an
+/// enabled SERCOM then never finishes. Call it with the core clock on: the
+/// reset synchronises on it.
+pub(crate) fn reset(base: usize) {
+    const CTRLA: usize = 0x00;
+    const SYNCBUSY: usize = 0x1C;
+    const SWRST: u32 = 1 << 0;
+    const ENABLE: u32 = 1 << 1;
+    const SYNC_SWRST: u32 = 1 << 0;
+    const SYNC_ENABLE: u32 = 1 << 1;
+    let read = |offset: usize| {
+        // SAFETY: a register of the SERCOM at `base`, read whole.
+        unsafe { core::ptr::read_volatile((base + offset) as *const u32) }
+    };
+    let write = |offset: usize, value: u32| {
+        // SAFETY: as above; the driver calling owns the SERCOM.
+        unsafe { core::ptr::write_volatile((base + offset) as *mut u32, value) }
+    };
+    let ctrla = read(CTRLA);
+    if ctrla & ENABLE != 0 {
+        write(CTRLA, ctrla & !ENABLE);
+        while read(SYNCBUSY) & SYNC_ENABLE != 0 {}
+    }
+    write(CTRLA, SWRST);
+    while read(SYNCBUSY) & SYNC_SWRST != 0 {}
+}

@@ -60,7 +60,6 @@ const RXSPACE_SHIFT: u16 = 8;
 #[cfg(all(dma, sercom_v6))]
 const RXSPACE_MASK: u16 = 0x1F;
 
-const SWRST: u32 = 1 << 0;
 const ENABLE: u32 = 1 << 1;
 /// MODE 1: USART with the internal clock.
 const MODE_INTERNAL: u32 = 1 << 2;
@@ -78,7 +77,6 @@ const RXEN: u32 = 1 << 17;
 /// FIFO isn't full, RXC while the RX FIFO isn't empty.
 #[cfg(sercom_v6)]
 const FIFOEN: u32 = 1 << 27;
-const SYNC_SWRST: u32 = 1 << 0;
 const SYNC_ENABLE: u32 = 1 << 1;
 const SYNC_CTRLB: u32 = 1 << 2;
 
@@ -702,8 +700,7 @@ impl<'d, M> Uart<'d, M> {
         let state = T::state();
         // The reset synchronises on the core clock, so that first.
         crate::clocks::enable_channel(state.gclk_channel, config.generator);
-        write32(base, CTRLA, SWRST);
-        while read32(base, SYNCBUSY) & SYNC_SWRST != 0 {}
+        crate::sercom::reset(base);
         let txpo = if rtscts { TXPO_RTS_CTS } else { 0 };
         write32(base, CTRLA, txpo | (u32::from(rx_pad) << RXPO_SHIFT));
         state.rx_pin.store(NO_PIN, Ordering::Relaxed);

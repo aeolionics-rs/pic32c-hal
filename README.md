@@ -214,8 +214,8 @@ The plan is to publish to crates.io once these have stabilized.
   `clocks` is the CK's module (XOSC, PLL0 and twelve generators; its PLL
   outputs are numbered 0 to 4, it needs the additional regulator, and
   takes one flash wait state per 24 MHz to 72 MHz), `gpio`, `uart` (SERCOM
-  v6 with its FIFO, DMA and the ring receiver), `spi`, `i2c` (built, not
-  yet run), `wdt`, `uid`, the time driver on a TCC (all seven are 16-bit),
+  v6 with its FIFO, DMA and the ring receiver), `spi`, `i2c`, `wdt`,
+  `uid`, the time driver on a TCC (all seven are 16-bit),
   `can` (an `M_CAN` 3.3.0 behind a wrapper, so its registers start 0x100 in
   and the message RAM's offset is in the wrapper), and `dma` on its DMAC
   (the SAM D21/C21 kind, `dma_u2223`: 8 channels, descriptors in SRAM, the
@@ -229,8 +229,10 @@ The plan is to publish to crates.io once these have stabilized.
   (with the unique ID), `can_loopback` (internal loopback only), `dma`,
   `uart_dma` (256-byte blocks echoed by DMA, a block at a time),
   `uart_ring` (the ring receiver, driven from the host), `spi` (in
-  loopback on the mikroBUS pins, SERCOM2), and `flash` and `flash_async`
-  (scratch pages at offsets 0x7_C000 and 0x4_0000). Build with `cargo build
+  loopback on the mikroBUS pins, SERCOM2), `flash` and `flash_async`
+  (scratch pages at offsets 0x7_C000 and 0x4_0000), and `i2c` (an `SHT4x`
+  and a BMP280 or BME280 wired to EXT1 or the mikroBUS socket; the board
+  has no I2C device of its own). Build with `cargo build
   --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi
   --example blink`; flash with pyOCD and the PIC32CM-SG00_DFP pack, the
   board's debugger in CMSIS-DAP mode. All pass on the board: 1,002-1,003
@@ -244,7 +246,11 @@ The plan is to publish to crates.io once these have stabilized.
   `flash_async`'s: page erase 19.4 ms, 1 KiB row 7.9 ms, 16-byte word
   129 µs, reads right after an erase or write (the FCR's prefetch cache
   needs no invalidating), the CPU stalled through each as PFM is one
-  panel.
+  panel; and `i2c`'s 12, against an SHT40 and a BMP280: scan, NACK, reads
+  blocking and on interrupts at 100 kHz, 400 kHz and 1 MHz, and both
+  sensors' readings. PD01 and PD00 work together as SERCOM1's pads 0
+  and 1 (the chip file's set 3); which other pins share their set is still
+  the open question below.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -347,6 +353,9 @@ PIC32CM SG00:
   anything relies on priorities.
 - `boot!` (BFM stage-0 and the SRAM ECC `__pre_init`) is the same in both
   board crates: a candidate for the HAL.
+- PD00/PD01's I/O set: the ATDF gives them none, the data sheet's table
+  7-11 says set 1 (with PC15/PC14); the chip file puts them in set 3 (with
+  PC12/PC13). Only PD00/PD01 together have run.
 
 Both families:
 

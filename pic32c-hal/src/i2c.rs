@@ -47,7 +47,6 @@ const SYNCBUSY: usize = 0x1C;
 const ADDR: usize = 0x24;
 const DATA: usize = 0x28;
 
-const SWRST: u32 = 1 << 0;
 const ENABLE: u32 = 1 << 1;
 /// MODE 5: I2C host.
 const MODE_HOST: u32 = 0x5 << 2;
@@ -61,7 +60,6 @@ const LOWTOUTEN: u32 = 1 << 30;
 const CMD_READ: u32 = 0x2 << 16;
 const CMD_STOP: u32 = 0x3 << 16;
 const ACKACT_NACK: u32 = 1 << 18;
-const SYNC_SWRST: u32 = 1 << 0;
 const SYNC_ENABLE: u32 = 1 << 1;
 const SYNC_SYSOP: u32 = 1 << 2;
 
@@ -291,8 +289,7 @@ impl<M> I2c<'_, M> {
 
     /// Resets and sets the SERCOM up afresh, the bus idle.
     fn reset(&self) {
-        write32(self.base, CTRLA, SWRST);
-        while read32(self.base, SYNCBUSY) & SYNC_SWRST != 0 {}
+        crate::sercom::reset(self.base);
         write32(self.base, CTRLA, self.ctrla);
         // Smart mode off: each byte's ack is the driver's command.
         write32(self.base, CTRLB, 0);

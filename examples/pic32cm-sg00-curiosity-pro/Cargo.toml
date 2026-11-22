@@ -58,6 +58,11 @@ name = "flash_async"
 test = false
 bench = false
 
+[[example]]
+name = "i2c"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 # The vector table is in program flash at 0x0C000000; boot flash holds only

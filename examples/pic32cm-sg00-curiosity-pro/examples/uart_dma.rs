@@ -8,9 +8,10 @@
 //! and writes each back as one transfer paced by its transmit request. Send
 //! it a block at a time, each after the last one's echo: while it writes a
 //! block it reads nothing, so a stream overruns the SERCOM's 16-byte FIFO
-//! (`uart_ring` takes a stream): `tools/host/uart_dma_test.py`
-//! does. LED0 toggles with each block. 115,200
-//! baud unless `UART_BAUD` says otherwise when building.
+//! (`uart_ring` takes a stream): `tools/host/uart_dma_test.py` does. LED0
+//! toggles with each block. 115,200 baud unless `UART_BAUD` says otherwise
+//! when building. The banner goes out on a blocking `Uart` first, dropped
+//! while still enabled, so the DMA one takes over a SERCOM that's running.
 
 #![no_std]
 #![no_main]
@@ -52,12 +53,19 @@ const fn parse(digits: &[u8]) -> u32 {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = pic32cm_sg00_curiosity_pro::init();
+    let mut p = pic32cm_sg00_curiosity_pro::init();
     let mut led = Output::new(p.PA20, Level::High);
     let mut config = uart::Config::default();
     config.baudrate = BAUD;
+    // The banner from a blocking UART on the same SERCOM, dropped still
+    // enabled: the DMA one's setup must reset it from there.
+    {
+        let mut banner = Uart::new_blocking(p.SERCOM4.reborrow(), p.PD19.reborrow(), p.PD20.reborrow(), config).unwrap();
+        banner.blocking_write(b"\r\npic32cm-sg00-curiosity-pro uart_dma\r\n");
+        banner.blocking_flush();
+    }
     let mut uart = Uart::new(p.SERCOM4, p.PD19, p.PD20, Irqs, p.DMA_CH1, p.DMA_CH0, config).unwrap();
-    let _ = uart.write(b"\r\npic32cm-sg00-curiosity-pro uart_dma\r\n").await;
+    let _ = uart.write(b"uart_dma: ready\r\n").await;
     let mut block = [0u8; BLOCK];
     loop {
         // A receive error comes after the block, which is still echoed.

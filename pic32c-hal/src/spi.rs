@@ -42,7 +42,6 @@ const STATUS: usize = 0x1A;
 const SYNCBUSY: usize = 0x1C;
 const DATA: usize = 0x28;
 
-const SWRST: u32 = 1 << 0;
 const ENABLE: u32 = 1 << 1;
 /// MODE 3: SPI host.
 const MODE_HOST: u32 = 0x3 << 2;
@@ -52,7 +51,6 @@ const CPHA: u32 = 1 << 28;
 const CPOL: u32 = 1 << 29;
 const DORD_LSB: u32 = 1 << 30;
 const RXEN: u32 = 1 << 17;
-const SYNC_SWRST: u32 = 1 << 0;
 const SYNC_ENABLE: u32 = 1 << 1;
 const SYNC_CTRLB: u32 = 1 << 2;
 
@@ -383,8 +381,7 @@ impl<'d, M> Spi<'d, M> {
         let base = T::BASE;
         // The reset synchronises on the core clock, so that first.
         crate::clocks::enable_channel(T::state().gclk_channel, config.generator);
-        write32(base, CTRLA, SWRST);
-        while read32(base, SYNCBUSY) & SYNC_SWRST != 0 {}
+        crate::sercom::reset(base);
         let mut spi = Self {
             base,
             number: T::NUMBER,
