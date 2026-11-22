@@ -213,8 +213,10 @@ The plan is to publish to crates.io once these have stabilized.
   board's SPI pins, SERCOM0 PA04/PA05/PA07, in loopback) and `i2c` (on its
   I2C pins, SERCOM0 PA00/PA01, with a sensor wired), `flash`,
   `flash_async`, `watchdog`, `uid`, `rtc`, `exti` (with PA08 jumpered
-  to PA09 and PA10 to PA11), `adc` and `adc_pin` (PA03's readings, as
-  `name=value` lines, for a voltage source wired to it), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
+  to PA09 and PA10 to PA11), `adc`, `adc_pin` (PA03's readings, as
+  `name=value` lines, for a voltage source wired to it) and `uart_flow`
+  (RTS/CTS on SERCOM0, PA04-PA07, against a Curiosity Ultra's
+  `uart_peer`), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -247,7 +249,12 @@ The plan is to publish to crates.io once these have stabilized.
   sensor reading 33.5 °C with an SHT40 beside the board at 24.7 °C (about
   9 °C high: see the driver's known issue); and `adc_pin` with a 12-bit
   DAC on PA03 stepped from 0.2 V to 3.1 V: linear to within 2.6 counts
-  (RMS 1.1) against VDD and against the 2.048 V reference.
+  (RMS 1.1) against VDD and against the 2.048 V reference; and
+  `uart_flow` at 1 Mbaud against the SG01's `uart_peer`: CTS holding a
+  6 KiB burst (seen 54 times, every byte back) and RTS holding the echo
+  through 200 ms unread (no overflow), on the DMA `Uart` and on a
+  `BufferedUart` with 256-byte rings, each control without flow control
+  losing bytes.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
