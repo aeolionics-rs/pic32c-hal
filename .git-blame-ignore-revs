@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 Aeolionics, LLC
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Commits that only reformat, left out of `git blame`. GitHub reads this file
+# by its name; locally, `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
+# cargo fmt
+32927112cc3544c026cc74dc356583bd800f86df
