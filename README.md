@@ -216,7 +216,7 @@ The plan is to publish to crates.io once these have stabilized.
   to PA09 and PA10 to PA11), `adc`, `adc_pin` (PA03's readings, as
   `name=value` lines, for a voltage source wired to it) and `uart_flow`
   (RTS/CTS on SERCOM0, PA04-PA07, against a Curiosity Ultra's
-  `uart_peer`), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
+  `uart_peer`) and `nmi` (PA00 jumpered to PA01, the NMI pin), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -254,7 +254,10 @@ The plan is to publish to crates.io once these have stabilized.
   6 KiB burst (seen 54 times, every byte back) and RTS holding the echo
   through 200 ms unread (no overflow), on the DMA `Uart` and on a
   `BufferedUart` with 256-byte rings, each control without flow control
-  losing bytes.
+  losing bytes; and `nmi` on PA01: high and low levels firing once at
+  once (the handler disarms the level) and not for the other level,
+  rising, falling and either edge firing once about 25 µs after PA00
+  moved and not before, the wrong edge and a disarmed pin not firing.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -412,8 +415,8 @@ PIC32CM PL10:
   calibration and the data sheet's equation; the preliminary data sheet
   doesn't settle it. The external reference needs wiring (not yet run).
 - A software open-drain output.
-- `rtc` from the crystal, and the NMI, on a board with the crystal and an
-  NMI pin wired (not yet run).
+- `rtc` from the crystal, on a board with the crystal connected (not yet
+  run).
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.
 
