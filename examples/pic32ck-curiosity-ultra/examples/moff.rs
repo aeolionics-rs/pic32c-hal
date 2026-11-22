@@ -33,18 +33,14 @@
 use core::fmt::Write;
 
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 use panic_halt as _;
 use pic32c_hal::adc::{self, Adc, Calibration, SampleTime};
 use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::i2c::{self, Config, I2c};
 use pic32c_hal::{bind_interrupts, peripherals};
 use pic32ck_curiosity_ultra::uart::Uart;
-#[path = "common/sensors.rs"]
-#[allow(dead_code, reason = "shared by several examples; each uses some of it")]
-mod sensors;
-
-use sensors::{Centi, SHT4X};
+use sht4x::{Address, Precision, Sht4xAsync};
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -111,32 +107,35 @@ async fn main(_spawner: Spawner) {
         pic32c_hal::gpio::set_as_function(p.PB01, pic32c_hal::gpio::Function::B);
     }
 
-    // The SHT4x.
-    let mut sht = None;
-    for address in SHT4X {
-        if let Ok(serial) = sensors::sht4x_serial(&mut bus, address).await {
-            let _ = writeln!(t.log, "SHT4x at {address:#04x}, serial {serial:08x}");
-            sht = Some(address);
+    // The SHT4x, by the `sht4x` crate, at whichever address answers.
+    let mut found = None;
+    for address in [Address::Address0x44, Address::Address0x45, Address::Address0x46] {
+        let mut sht = Sht4xAsync::<_, Delay>::new_with_address(&mut bus, address);
+        if let Ok(serial) = sht.serial_number(&mut Delay).await {
+            let _ = writeln!(t.log, "SHT4x at {:#04x}, serial {serial:08x}", u8::from(address));
+            found = Some(address);
             break;
         }
     }
-    let Some(sht) = sht else {
+    let Some(address) = found else {
         t.check("an SHT4x", false, format_args!("none at 0x44-0x46: this test needs one"));
         let failures = t.failures;
         finish(&mut log, &mut led, failures).await
     };
 
+    let mut sht = Sht4xAsync::<_, Delay>::new_with_address(&mut bus, address);
     Timer::after(Duration::from_millis(300)).await;
     let (mut lowest, mut highest) = (i64::MAX, i64::MIN);
     let mut rounds = 0;
     for round in 0..5 {
-        let air = match sensors::sht4x_measure(&mut bus, sht).await {
-            Ok(reading) => reading,
+        let air = match sht.measure(Precision::High, &mut Delay).await {
+            Ok(m) => m,
             Err(e) => {
-                t.check("SHT4x", false, format_args!("round {round}: {e}"));
+                t.check("SHT4x", false, format_args!("round {round}: {e:?}"));
                 continue;
             }
         };
+        let centidegrees = i64::from(air.temperature_milli_celsius() / 10);
         // The die.
         let mut ptat_sum = 0u32;
         let mut bandgap_sum = 0u32;
@@ -150,7 +149,7 @@ async fn main(_spawner: Spawner) {
         // The reading as the factory's reference would have given it, and the
         // offset from what the calibration expects at the air's temperature.
         let scaled = i64::from(ptat) * i64::from(avdd) / i64::from(cal.reference_mv);
-        let expected = expected_ptat(&cal, air.centidegrees);
+        let expected = expected_ptat(&cal, centidegrees);
         let offset = expected - scaled;
         lowest = lowest.min(offset);
         highest = highest.max(offset);
@@ -181,8 +180,8 @@ async fn main(_spawner: Spawner) {
         let _ = writeln!(
             t.log,
             "round {round}: air {} C {} %RH; die PTAT {ptat} (scaled {scaled}), AVDD {avdd} mV; expected at the air's temperature {expected}: offset {offset} counts",
-            Centi(air.centidegrees),
-            Centi(air.centi_rh.unwrap_or(0)),
+            Centi(centidegrees),
+            Centi(i64::from(air.humidity_milli_percent() / 10)),
         );
         if let Some((sensor_mv, bandgap_mv, offset_mv)) = mcp1501 {
             let _ = writeln!(
@@ -196,4 +195,14 @@ async fn main(_spawner: Spawner) {
     t.check("offset", rounds == 5 && highest - lowest <= SPREAD, format_args!("{lowest} to {highest} counts over {rounds} rounds (within {SPREAD})"));
     let failures = t.failures;
     finish(&mut log, &mut led, failures).await
+}
+
+/// Hundredths, shown to two places.
+struct Centi(i64);
+
+impl core::fmt::Display for Centi {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        write!(f, "{sign}{}.{:02}", self.0.unsigned_abs() / 100, self.0.unsigned_abs() % 100)
+    }
 }

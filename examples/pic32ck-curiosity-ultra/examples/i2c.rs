@@ -12,11 +12,13 @@
 //! cycle waited out by acknowledge polling. On interrupts: the same reads at
 //! 100 kHz, 400 kHz and 1 MHz, timed.
 //!
-//! Then, at 400 kHz, each sensor the scan found that `common/sensors.rs`
-//! knows (an `SHT4x` at 0x44-0x46; a BMP280 or BME280 at 0x76 or 0x77, such as
-//! a `MikroElektronika` `TempHum` 15 or Weather Click in the mikroBUS socket):
-//! its identity (the `SHT4x`'s CRC-checked serial number, the Bosch parts'
-//! chip ID) and a measurement within reason. None is fine; other devices
+//! Then, at 400 kHz, each sensor the scan found that the bench knows, by a
+//! public driver on this bus through its embedded-hal traits (an `SHT4x` at
+//! 0x44-0x46 by the `sht4x` crate, async; a BMP280 or BME280 at 0x76 or 0x77
+//! by the `bme280` crate, blocking;
+//! such as a `MikroElektronika` `TempHum` 15 or Weather Click in the
+//! mikroBUS socket): its identity (the `SHT4x`'s CRC-checked serial number,
+//! the Bosch parts' chip ID) and a measurement within reason. None is fine; other devices
 //! (the board's ATECC608B at 0x36) are listed, not tested.
 //!
 //! Over the virtual COM port; LED0 blinks slowly when all passed, fast on a
@@ -30,7 +32,9 @@
 
 use core::fmt::Write;
 
+use bme280::i2c::BME280;
 use embassy_executor::Spawner;
+use embassy_time::Delay;
 use embassy_time::{Duration, Timer};
 use panic_halt as _;
 use pic32c_hal::gpio::{Level, Output};
@@ -39,11 +43,10 @@ use pic32c_hal::mode::Async;
 use pic32c_hal::{Peri, bind_interrupts, peripherals};
 use pic32ck_curiosity_ultra::time;
 use pic32ck_curiosity_ultra::uart::Uart;
-#[path = "common/sensors.rs"]
-#[allow(dead_code, reason = "shared by several examples; each uses some of it")]
-mod sensors;
+use sht4x::{Address, Precision, Sht4xAsync};
 
-use sensors::{BMX280, Bmx280, Centi, Reading, SHT4X};
+/// The Bosch parts' addresses.
+const BOSCH: [u8; 2] = [0x76, 0x77];
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -183,12 +186,15 @@ async fn tests(sercom: &mut Peri<'static, peripherals::SERCOM4>, sda: &mut Peri<
         );
     }
 
-    sensors_found(&mut bus, found, &[eeprom, eui], t).await;
+    let tested = sensors_found(&mut bus, found, &[eeprom, eui], t).await;
+    let _ = writeln!(t.log, "sensors tested: {tested}");
 }
 
-/// Tests each sensor in `found` that `sensors` knows, at 400 kHz, skipping
-/// the addresses in `skip`.
-async fn sensors_found(bus: &mut I2c<'_, Async>, found: &[u8], skip: &[u8], t: &mut Tests<'_>) {
+/// Tests each sensor in `found` the bench knows, at 400 kHz, skipping the
+/// addresses in `skip`: an `SHT4x` by the `sht4x` crate's async driver, and
+/// a BMP280 or BME280 by the `bme280` crate's blocking one (its async one
+/// needs nightly Rust), both on this bus through its embedded-hal traits.
+async fn sensors_found(bus: &mut I2c<'_, Async>, found: &[u8], skip: &[u8], t: &mut Tests<'_>) -> u32 {
     let mut config = Config::default();
     config.frequency = 400_000;
     bus.set_config(&config).unwrap();
@@ -197,49 +203,77 @@ async fn sensors_found(bus: &mut I2c<'_, Async>, found: &[u8], skip: &[u8], t: &
         if skip.contains(&address) {
             continue;
         }
-        if SHT4X.contains(&address) {
+        if let Some(sht_address) = sht4x_address(address) {
             tested += 1;
-            let serial = sensors::sht4x_serial(bus, address).await;
+            let mut sht = Sht4xAsync::<_, Delay>::new_with_address(&mut *bus, sht_address);
+            let serial = sht.serial_number(&mut Delay).await;
             t.check("SHT4x serial", serial.is_ok(), format_args!("at {address:#04x}: {serial:08x?}"));
-            let reading = sensors::sht4x_measure(bus, address).await;
-            check_reading(t, "SHT4x", address, reading);
-        } else if BMX280.contains(&address) {
-            let Some(id) = sensors::bmx280_id(bus, address).await else {
-                let _ = writeln!(t.log, "{address:#04x}: not a BMP280 or BME280 (chip ID), not tested");
-                continue;
+            match sht.measure(Precision::High, &mut Delay).await {
+                Ok(m) => {
+                    let (milli_c, milli_rh) = (m.temperature_milli_celsius(), m.humidity_milli_percent());
+                    let _ = writeln!(t.log, "SHT4x at {address:#04x}: {} C, {} %RH", Milli(milli_c), Milli(milli_rh));
+                    let good = (-10_000..=60_000).contains(&milli_c) && (0..=100_000).contains(&milli_rh);
+                    t.check("SHT4x", good, format_args!("measurement within reason"));
+                }
+                Err(e) => t.check("SHT4x", false, format_args!("at {address:#04x}: {e:?}")),
+            }
+        } else if BOSCH.contains(&address) {
+            // The chip ID first: the driver takes either part, but its
+            // humidity means nothing on a BMP280, which has none.
+            let mut id = [0u8];
+            let name = match bus.write_read(address, &[0xD0], &mut id).await.map(|()| id[0]) {
+                Ok(0x60) => "BME280",
+                Ok(0x58) => "BMP280",
+                other => {
+                    let _ = writeln!(t.log, "{address:#04x}: not a BMP280 or BME280 ({other:02x?}), not tested");
+                    continue;
+                }
             };
             tested += 1;
-            let name = if id == 0x60 { "BME280" } else { "BMP280" };
-            let _ = writeln!(t.log, "{name} at {address:#04x}: chip ID {id:#04x}");
-            let reading = match Bmx280::new(bus, address, id).await {
-                Ok(part) => part.measure(bus).await,
+            // Blocking: the measurement holds the executor for its
+            // conversion, some 40 ms.
+            let mut part = BME280::new(&mut *bus, address);
+            let reading = match part.init(&mut Delay) {
+                Ok(()) => part.measure(&mut Delay),
                 Err(e) => Err(e),
             };
-            check_reading(t, name, address, reading);
+            match reading {
+                Ok(m) => {
+                    let humid = name == "BME280";
+                    let _ = write!(t.log, "{name} at {address:#04x}: {:.2} C, {:.2} hPa", m.temperature, m.pressure / 100.0);
+                    if humid {
+                        let _ = write!(t.log, ", {:.2} %RH", m.humidity);
+                    }
+                    let _ = writeln!(t.log);
+                    let good = (-10.0..=60.0).contains(&m.temperature) && (30_000.0..=110_000.0).contains(&m.pressure) && (!humid || (0.0..=100.0).contains(&m.humidity));
+                    t.check(name, good, format_args!("measurement within reason"));
+                }
+                Err(e) => t.check(name, false, format_args!("at {address:#04x}: {e:?}")),
+            }
         } else {
             let _ = writeln!(t.log, "{address:#04x}: not a known sensor, not tested");
         }
     }
-    let _ = writeln!(t.log, "sensors tested: {tested}");
+    tested
 }
 
-/// A sensor's reading within reason: -10 to 60 C, 0 to 100 %RH, 300 to
-/// 1100 hPa.
-fn check_reading(t: &mut Tests<'_>, name: &str, address: u8, reading: Result<Reading, &'static str>) {
-    match reading {
-        Ok(r) => {
-            let good = (-1000..=6000).contains(&r.centidegrees) && r.centi_rh.is_none_or(|rh| (0..=10_000).contains(&rh)) && r.pascals.is_none_or(|pa| (30_000..=110_000).contains(&pa));
-            let _ = write!(t.log, "{name} at {address:#04x}: {} C", Centi(r.centidegrees));
-            if let Some(rh) = r.centi_rh {
-                let _ = write!(t.log, ", {} %RH", Centi(rh));
-            }
-            if let Some(pa) = r.pascals {
-                let _ = write!(t.log, ", {} hPa", Centi(pa));
-            }
-            let _ = writeln!(t.log);
-            t.check(name, good, format_args!("measurement within reason"));
-        }
-        Err(e) => t.check(name, false, format_args!("at {address:#04x}: {e}")),
+/// The `sht4x` crate's name for an `SHT4x` address.
+fn sht4x_address(address: u8) -> Option<Address> {
+    match address {
+        0x44 => Some(Address::Address0x44),
+        0x45 => Some(Address::Address0x45),
+        0x46 => Some(Address::Address0x46),
+        _ => None,
+    }
+}
+
+/// Thousandths, shown to two places.
+struct Milli(i32);
+
+impl core::fmt::Display for Milli {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        write!(f, "{sign}{}.{:02}", self.0.unsigned_abs() / 1000, self.0.unsigned_abs() % 1000 / 10)
     }
 }
 

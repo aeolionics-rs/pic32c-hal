@@ -79,6 +79,10 @@ can-hal = { version = "0.4.3", git = "https://github.com/aeolionics-rs/can-hal-r
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
 embedded-hal = "1.0.0"
+# The bench programs' I2C sensors, on embedded-hal-async.
+# bme280's blocking driver: its async one needs nightly Rust.
+bme280 = "0.5.1"
+sht4x = { version = "0.2.0", features = ["embedded-hal-async"] }
 embedded-storage = "0.3.2"
 embedded-storage-async = "0.4.2"
 panic-halt = "1.0.0"
