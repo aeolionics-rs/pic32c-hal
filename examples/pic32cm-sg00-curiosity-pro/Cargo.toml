@@ -29,6 +29,16 @@ test = false
 bench = false
 
 [[example]]
+name = "can_listen"
+test = false
+bench = false
+
+[[example]]
+name = "can_ping"
+test = false
+bench = false
+
+[[example]]
 name = "dma"
 test = false
 bench = false

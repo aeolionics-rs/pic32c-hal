@@ -34,6 +34,9 @@ Over serial (PORT is the device, e.g. `/dev/ttyACM0` or `/dev/cu.usbmodem…`):
   or PL10 board's virtual COM port: the overrun, then a stream echoed,
   paced to SHARE of the line rate if given (reset the board before each
   run).
+- `can_echo.py INTERFACE SECONDS`: Linux, a raw CAN socket: the far end of
+  a board's `can_ping`, sending each frame back with its ID's top bit set,
+  classic and FD.
 - `cdc_echo_test.py PORT`: a CDC-ACM echo (`usb_echo`).
 - `cdc_hs_test.py PORT [MEGABYTES]`: every length to 1,100 bytes, then a
   stream each way (`usbhs_echo`).
