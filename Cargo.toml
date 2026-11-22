@@ -5,6 +5,9 @@ members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-pl10-curiosity-
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# embassy main uses core::mem::DropGuard (embassy-embedded-hal, and
+# embassy-net with dns), stable from 1.100.
+rust-version = "1.100"
 license = "MIT OR Apache-2.0"
 
 [workspace.lints.clippy]
@@ -39,12 +42,12 @@ embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", rev 
 embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
 embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
 
-# Ported for the spike, checked out beside this repository in the spike's
-# folder: picoserve 0.21.0 (its `embassy` glue on the new TcpSocket and
-# TcpListener, sammhicks/picoserve#122) and edge-nal-embassy from our edge-net
-# fork's branch `xarxa-embassy-net` (UDP and DNS; TCP not yet).
-picoserve = { path = "../picoserve" }
-edge-nal-embassy = { path = "../edge-net/edge-nal-embassy" }
-# edge-nal-embassy names the fork's edge-nal by path; this keeps edge-mdns on
-# the same one.
-edge-nal = { path = "../edge-net/edge-nal" }
+# Ported to embassy-net on xarxa, in our forks: picoserve 0.21.0 (its
+# `embassy` glue on the new TcpSocket and TcpListener, sammhicks/picoserve#122)
+# and edge-nal-embassy (UDP and DNS; TCP not yet). `.cargo/local.toml` can
+# point these at checkouts beside this repository.
+picoserve = { git = "https://github.com/aeolionics-contrib/picoserve", branch = "xarxa-0.21" }
+edge-nal-embassy = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }
+# edge-nal-embassy takes the fork's edge-nal; this keeps edge-mdns on the same
+# one.
+edge-nal = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }

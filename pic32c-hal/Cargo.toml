@@ -3,6 +3,7 @@ name = "pic32c-hal"
 description = "Drivers for Microchip's PIC32C, starting with the PIC32CK: clocks, GPIO, DMA, UART, SPI, I2C, CAN, Ethernet, USB, flash, TRNG, watchdog and an embassy-time driver"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 keywords = ["pic32ck", "microchip", "embassy", "hal"]
 categories = ["embedded", "hardware-support", "no-std"]

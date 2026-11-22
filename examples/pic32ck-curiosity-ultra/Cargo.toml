@@ -3,6 +3,7 @@ name = "pic32ck-curiosity-ultra"
 description = "Board support for Microchip's PIC32CK SG01 and GC01 Curiosity Ultra boards, with pic32c-hal's bench programs as examples"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 

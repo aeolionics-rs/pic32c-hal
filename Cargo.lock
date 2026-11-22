@@ -522,6 +522,7 @@ dependencies = [
 [[package]]
 name = "edge-nal"
 version = "0.7.0"
+source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa-embassy-net#13bd563e494c19747e6507e27a75881fe4b49cbd"
 dependencies = [
  "embassy-time",
  "embedded-io-async",
@@ -530,9 +531,9 @@ dependencies = [
 [[package]]
 name = "edge-nal-embassy"
 version = "0.9.0"
+source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa-embassy-net#13bd563e494c19747e6507e27a75881fe4b49cbd"
 dependencies = [
  "edge-nal",
- "embassy-futures",
  "embassy-net",
  "embedded-io-async",
 ]
@@ -1283,6 +1284,7 @@ dependencies = [
 [[package]]
 name = "picoserve"
 version = "0.21.0"
+source = "git+https://github.com/aeolionics-contrib/picoserve?branch=xarxa-0.21#dc38f8f1872fa750081eacff502ba78ac78f3ed7"
 dependencies = [
  "const-sha1",
  "embassy-net",
@@ -1300,8 +1302,7 @@ dependencies = [
 [[package]]
 name = "picoserve_derive"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a6bb05b0d68b7b33e44cdd00189af3c704c14034c3f2b7d283114b1c3134687"
+source = "git+https://github.com/aeolionics-contrib/picoserve?branch=xarxa-0.21#dc38f8f1872fa750081eacff502ba78ac78f3ed7"
 dependencies = [
  "proc-macro2",
  "quote",

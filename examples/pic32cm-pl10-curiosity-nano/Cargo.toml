@@ -3,6 +3,7 @@ name = "pic32cm-pl10-curiosity-nano"
 description = "Board support for Microchip's PIC32CM PL10 Curiosity Nano (EV10P22A), with pic32c-hal's PL10 bench programs as examples"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 
