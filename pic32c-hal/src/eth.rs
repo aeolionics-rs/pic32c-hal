@@ -85,6 +85,8 @@ const NCFGR_CLK_DIV64: u32 = 4 << 18;
 /// The data bus width, "always 1" (64 bits).
 const NCFGR_DBW64: u32 = 1 << 21;
 const NSR_IDLE: u32 = 1 << 2;
+/// TSR: transmit active.
+const TSR_TXGO: u32 = 1 << 3;
 /// DCFGR: INCR4 bursts, full RX and TX packet buffers, 1,536-byte receive
 /// buffers (24 x 64).
 const DCFGR_VALUE: u32 = 0x04 | (3 << 8) | (1 << 10) | (24 << 16);
@@ -327,6 +329,11 @@ impl RxRing<'_> {
         self.empty -= 1;
     }
 
+    /// Whether the next descriptor holds a frame.
+    fn ready(&self) -> bool {
+        self.buffers[self.next].is_some() && self.descriptors[self.next].address() & RX_OWNED != 0
+    }
+
     /// The next whole received frame, giving back to the DMA any buffers
     /// that hold part of a frame (a frame larger than a buffer, which the
     /// MTU rules out, or the tail of one after an overrun).
@@ -367,12 +374,23 @@ struct TxRing<'d> {
 }
 
 impl TxRing<'_> {
-    /// Gives the sent frames' buffers back to the pool.
+    /// Gives the sent frames' buffers back to the pool, and restarts the
+    /// DMA if it stopped with frames still queued.
     fn reclaim(&mut self) {
         while self.in_flight > 0 && self.descriptors[self.reclaim].status() & TX_USED != 0 {
             self.buffers[self.reclaim] = None;
             self.reclaim = (self.reclaim + 1) % self.descriptors.len();
             self.in_flight -= 1;
+        }
+        // `transmit` starts the DMA for each frame, but a start written
+        // while it is still finishing the last frame does nothing: if it
+        // had already read this frame's descriptor as used, it stops, and
+        // the frame waits for the next start, which may be a TCP
+        // retransmission 200 ms later. The used-bit-read interrupt wakes
+        // the stack, which comes here: start it again. (Linux's macb
+        // driver, for the same Cadence MAC, restarts on that interrupt.)
+        if self.in_flight > 0 && read(TSR) & TSR_TXGO == 0 {
+            write(NCR, read(NCR) | NCR_TSTART);
         }
     }
 
@@ -664,11 +682,27 @@ impl xarxa_driver::Driver for Ethernet<'_> {
             return None;
         }
         let Some(buf) = self.rx.receive() else {
-            // Empty: the interrupt wakes us for the next frame (one that
-            // came in before this unmasking still raises it).
+            // Empty: the interrupt wakes us for the next frame. It doesn't
+            // for one the MAC finished while it was masked, and that
+            // frame's descriptor can reach memory after the interrupt that
+            // woke us, so a frame can be there unseen (Linux's macb driver,
+            // for the same Cadence MAC, notes this too). Look again once the
+            // interrupt is on: one there now is ours to take.
             self.rx_burst = 0;
             write(IER, IRQ_RX);
-            return None;
+            cortex_m::asm::dsb();
+            if !self.rx.ready() {
+                return None;
+            }
+            write(IDR, IRQ_RX);
+            let Some(buf) = self.rx.receive() else {
+                // Only part of a frame, given back: masked again, so come
+                // back for the rest ourselves.
+                WAKER.wake();
+                return None;
+            };
+            self.rx_burst += 1;
+            return Some(buf);
         };
         self.rx_burst += 1;
         Some(buf)
