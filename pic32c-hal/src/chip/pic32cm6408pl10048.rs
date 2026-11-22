@@ -62,6 +62,8 @@ embassy_hal_internal::peripherals!(
     PB11,
     SERCOM0,
     SERCOM1,
+    NVMCTRL,
+    WDT,
     // The DMAC's channels.
     DMA_CH0,
     DMA_CH1,

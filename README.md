@@ -189,8 +189,11 @@ The plan is to publish to crates.io once these have stabilized.
   bus clocks turned on by the driver), `uart`'s DMA and the ring receiver,
   `dma` on its DMAC (the SG00's IP and driver, with two channels and one
   vector), `spi` and `i2c` (the CK's drivers less CTRLC, with SERCOM v1's
-  narrower DATA, on generator 0 by default), and the time driver on
-  TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
+  narrower DATA, on generator 0 by default), `flash` (a driver of its own
+  for its NVMCTRL, behind the FCW driver's API: 512-byte pages, 32-bit
+  word writes, blocking and async on READY), `wdt` (the CK's driver: its
+  WDT moves SYNCBUSY.CLEAR, and its RSTC has its own reset causes), and
+  the time driver on TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (`blink` on
   TC0+TC1 and on TC0 alone: ticks 1,002-1,003 ms apart for a minute). Atomics go through
   `portable-atomic`. The other modules are CK only for now.
@@ -199,8 +202,8 @@ The plan is to publish to crates.io once these have stabilized.
   `blink` (24 MHz, LED, a line a second with the time), `uart_echo`
   (`BufferedUart`), and `dma`, `uart_dma`, `uart_ring`, `spi` (on the
   board's SPI pins, SERCOM0 PA04/PA05/PA07, in loopback) and `i2c` (on its
-  I2C pins, SERCOM0 PA00/PA01, with a sensor wired), the SG00 board's sized
-  for 8 KB of SRAM. Build with `cargo build --release -p
+  I2C pins, SERCOM0 PA00/PA01, with a sensor wired), `flash`,
+  `flash_async` and `watchdog`, the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -212,7 +215,13 @@ The plan is to publish to crates.io once these have stabilized.
   the four modes and LSB first, blocking and by DMA (1 KiB in 1.28 ms at
   12 MHz); and `i2c` against an `SHT40` and a BMP280 on one module (its
   4.7 kΩ pull-ups): the scan, a NACK, reads whole and in parts, async at
-  100 kHz, 400 kHz and 1 MHz, and both sensors by their public drivers.
+  100 kHz, 400 kHz and 1 MHz, and both sensors by their public drivers;
+  `flash` and `flash_async` on scratch pages at `0xF800` and `0xC000`
+  (erase 10 ms a page, about 116 µs a word, the CPU stalled meanwhile,
+  misaligned and out-of-range requests refused); and `watchdog`: start,
+  stop and refusals, fed at 100 ms (no warning) and 750 ms (a warning
+  each period), then starved (a warning at 506 ms, a reset at about 1 s,
+  RCAUSE watchdog), then a system reset request (RCAUSE system).
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -366,9 +375,9 @@ PIC32CK:
 
 PIC32CM PL10:
 
-- Watchdog and RTC: the CK's IP families, with small differences.
+- RTC: the CK's IP family, with small differences.
 - External interrupts on its EIC (U2254).
-- New drivers: flash (NVMCTRL), the ADC.
+- A new driver: the ADC.
 - Unique ID, and a software open-drain output.
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.

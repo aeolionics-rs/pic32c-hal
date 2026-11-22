@@ -26,6 +26,9 @@ jobs:
       - run: rustup toolchain install
       - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
       - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
+      # The CM chips' own drivers (their DMAC, flash controllers, watchdog).
+      - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
+      - run: cargo test -p pic32c-hal --features pic32cm6408pl10048 --lib
 
   # The HAL for each chip, every feature that chip has.
   chip:

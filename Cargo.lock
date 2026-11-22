@@ -1359,6 +1359,8 @@ dependencies = [
  "embassy-futures",
  "embassy-time",
  "embedded-hal 1.0.0",
+ "embedded-storage",
+ "embedded-storage-async",
  "panic-halt",
  "pic32c-hal",
  "sht4x",

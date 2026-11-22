@@ -89,7 +89,9 @@ pub mod dma;
 pub mod eth;
 #[cfg(all(feature = "exti", eic_v1))]
 pub mod exti;
-#[cfg(fcw)]
+#[cfg_attr(fcw, path = "flash.rs")]
+#[cfg_attr(nvmctrl, path = "flash_nvmctrl.rs")]
+#[cfg(any(fcw, nvmctrl))]
 pub mod flash;
 pub mod gpio;
 #[cfg(any(sercom_v6, sercom_v1))]
@@ -111,7 +113,7 @@ pub mod uid;
 pub mod usb;
 #[cfg(all(feature = "usbhs", usb_hs))]
 pub mod usbhs;
-#[cfg(wdt_v2)]
+#[cfg(any(wdt_v2, wdt_v1))]
 pub mod wdt;
 
 /// The chip's peripheral access crate, for what the HAL doesn't cover yet.

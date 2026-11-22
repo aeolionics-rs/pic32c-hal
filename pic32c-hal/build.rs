@@ -47,11 +47,13 @@ const ALL: &[&str] = &[
     "adc_msh",
     "rtc_v3",
     "wdt_v2",
+    "wdt_v1",
     "eic_v1",
     "cmcc",
     "fcw",
     "fcw_v1",
     "fcw_v2",
+    "nvmctrl",
     "trng",
     "mcan",
     "gmac",
@@ -85,7 +87,7 @@ const PIC32CK: &[&str] = &[
     "usb_hs",
 ];
 
-const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_u2223"];
+const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_u2223", "wdt_v1", "nvmctrl"];
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 

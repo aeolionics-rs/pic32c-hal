@@ -4,7 +4,9 @@
 
 //! The PIC32CK's watchdog (WDT, DS60001795 chapter 23) in normal mode, with
 //! its early warning, and the reset controller's record of why the chip last
-//! reset (RSTC.RCAUSE, chapter 29).
+//! reset (RSTC.RCAUSE, chapter 29). The SG00's is the same IP; the PL10's
+//! (DS40002667 chapters 20 and 16) differs only in SYNCBUSY's CLEAR bit,
+//! its clock (OSC32K's 1.024 kHz output) and the reset causes it records.
 //!
 //! The watchdog counts the 1.024 kHz output of the ultra-low-power 32 kHz
 //! oscillator, which isn't trimmed to the crystal: allow for its tolerance
@@ -20,8 +22,8 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{AtomicU32, Ordering};
 use core::task::Poll;
+use portable_atomic::{AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -34,6 +36,8 @@ const WDT: usize = 0x4401_6000;
 /// The SG00's (DS60001921 chapter 25: the same IP; RSTC chapter 31).
 #[cfg(pic32cm_sg)]
 const WDT: usize = 0x4400_E000;
+#[cfg(pic32cm_pl)]
+const WDT: usize = 0x4000_2000;
 const CTRLA: usize = WDT;
 const CONFIG: usize = WDT + 0x01;
 const EWCTRL: usize = WDT + 0x02;
@@ -47,7 +51,10 @@ const ENABLE: u8 = 1 << 1;
 const ALWAYSON: u8 = 1 << 7;
 const EW: u8 = 1 << 0;
 const SYNC_ENABLE: u32 = 1 << 1;
+#[cfg(wdt_v2)]
 const SYNC_CLEAR: u32 = 1 << 5;
+#[cfg(wdt_v1)]
+const SYNC_CLEAR: u32 = 1 << 4;
 /// The one value CLEAR takes that doesn't reset the chip.
 const CLEAR_KEY: u8 = 0xA5;
 
@@ -55,6 +62,37 @@ const CLEAR_KEY: u8 = 0xA5;
 const RCAUSE: usize = 0x4400_A000;
 #[cfg(pic32cm_sg)]
 const RCAUSE: usize = 0x4500_4000;
+/// The PL10's, a 32-bit register after CTRLA; the causes are in its low
+/// byte.
+#[cfg(pic32cm_pl)]
+const RCAUSE: usize = 0x4000_0C04;
+
+/// RCAUSE's bits: power-on, brown-out, external, watchdog, system,
+/// backup, lockup.
+#[cfg(wdt_v2)]
+mod cause {
+    pub const POWER_ON: u16 = 0b11;
+    pub const BROWN_OUT: u16 = 0b1_1100;
+    pub const EXTERNAL: u16 = 1 << 5;
+    pub const WATCHDOG: u16 = 1 << 6;
+    pub const SYSTEM: u16 = 1 << 7;
+    pub const BACKUP: u16 = 1 << 8;
+    pub const LOCKUP: u16 = 1 << 9;
+    pub const NAMES: [&str; 10] = ["POR", "PORCORE", "BOR VDDREG", "BOR VDDA", "BOR VDDIO", "external", "watchdog", "system", "backup", "lockup"];
+}
+/// The PL10's (no backup sleep). A `SYSRESETREQ` sets bit 5 (seen on the
+/// bench). Bit 6 is LOCKUP in its register diagram and "software reset" in
+/// its description; not yet seen set.
+#[cfg(wdt_v1)]
+mod cause {
+    pub const POWER_ON: u16 = 1 << 0;
+    pub const BROWN_OUT: u16 = 1 << 1;
+    pub const EXTERNAL: u16 = 1 << 3;
+    pub const WATCHDOG: u16 = 1 << 4;
+    pub const SYSTEM: u16 = 1 << 5;
+    pub const LOCKUP: u16 = 1 << 6;
+    pub const NAMES: [&str; 7] = ["POR", "BOR VDD", "", "external", "watchdog", "system", "lockup"];
+}
 
 /// A watchdog period: a number of cycles of its 1.024 kHz clock.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -239,55 +277,58 @@ impl ResetCause {
         Self(unsafe { read_volatile(RCAUSE as *const u16) })
     }
 
-    /// Power-on (POR or PORCORE).
+    /// Power-on (POR, or PORCORE on the PIC32CK and the SG00).
     #[must_use]
     pub const fn power_on(self) -> bool {
-        self.0 & 0b11 != 0
+        self.0 & cause::POWER_ON != 0
     }
 
-    /// A brown-out on VDDREG, VDDA or VDDIO.
+    /// A brown-out (on VDDREG, VDDA or VDDIO on the PIC32CK and the SG00;
+    /// VDD on the PL10).
     #[must_use]
     pub const fn brown_out(self) -> bool {
-        self.0 & 0b1_1100 != 0
+        self.0 & cause::BROWN_OUT != 0
     }
 
     /// The external reset pin.
     #[must_use]
     pub const fn external(self) -> bool {
-        self.0 & (1 << 5) != 0
+        self.0 & cause::EXTERNAL != 0
     }
 
     /// The watchdog.
     #[must_use]
     pub const fn watchdog(self) -> bool {
-        self.0 & (1 << 6) != 0
+        self.0 & cause::WATCHDOG != 0
     }
 
     /// A system reset request (`SYSRESETREQ`, from software or a debugger).
     #[must_use]
     pub const fn system(self) -> bool {
-        self.0 & (1 << 7) != 0
+        self.0 & cause::SYSTEM != 0
     }
 
-    /// Waking from backup sleep.
+    /// Waking from backup sleep (never on the PL10, which has none).
     #[must_use]
     pub const fn backup(self) -> bool {
-        self.0 & (1 << 8) != 0
+        #[cfg(wdt_v2)]
+        return self.0 & cause::BACKUP != 0;
+        #[cfg(wdt_v1)]
+        return false;
     }
 
     /// A CPU lockup.
     #[must_use]
     pub const fn lockup(self) -> bool {
-        self.0 & (1 << 9) != 0
+        self.0 & cause::LOCKUP != 0
     }
 }
 
 impl core::fmt::Debug for ResetCause {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        const NAMES: [&str; 10] = ["POR", "PORCORE", "BOR VDDREG", "BOR VDDA", "BOR VDDIO", "external", "watchdog", "system", "backup", "lockup"];
         write!(f, "ResetCause({:#06x}", self.0)?;
-        for (bit, name) in NAMES.iter().enumerate() {
-            if self.0 & (1 << bit) != 0 {
+        for (bit, name) in cause::NAMES.iter().enumerate() {
+            if self.0 & (1 << bit) != 0 && !name.is_empty() {
                 write!(f, " {name}")?;
             }
         }
@@ -310,11 +351,23 @@ mod tests {
     }
 
     #[test]
+    #[cfg(wdt_v2)]
     fn causes() {
         assert!(ResetCause(0x40).watchdog());
         assert!(!ResetCause(0x40).power_on());
         assert!(ResetCause(0x02).power_on());
         assert!(ResetCause(0x80).system());
         assert_eq!(format!("{:?}", ResetCause(0x41)), "ResetCause(0x0041 POR watchdog)");
+    }
+
+    #[test]
+    #[cfg(wdt_v1)]
+    fn causes() {
+        assert!(ResetCause(0x10).watchdog());
+        assert!(!ResetCause(0x10).power_on());
+        assert!(ResetCause(0x01).power_on());
+        assert!(ResetCause(0x20).system());
+        assert!(!ResetCause(0xFF).backup());
+        assert_eq!(format!("{:?}", ResetCause(0x11)), "ResetCause(0x0011 POR watchdog)");
     }
 }
