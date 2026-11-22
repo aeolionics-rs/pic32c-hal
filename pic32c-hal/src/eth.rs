@@ -374,23 +374,37 @@ struct TxRing<'d> {
 }
 
 impl TxRing<'_> {
-    /// Gives the sent frames' buffers back to the pool, and restarts the
-    /// DMA if it stopped with frames still queued.
-    fn reclaim(&mut self) {
+    /// Gives the sent frames' buffers back to the pool.
+    fn take_sent(&mut self) {
         while self.in_flight > 0 && self.descriptors[self.reclaim].status() & TX_USED != 0 {
             self.buffers[self.reclaim] = None;
             self.reclaim = (self.reclaim + 1) % self.descriptors.len();
             self.in_flight -= 1;
         }
+    }
+
+    /// Gives the sent frames' buffers back to the pool, and restarts the
+    /// DMA if it stopped with frames still queued.
+    fn reclaim(&mut self) {
+        self.take_sent();
         // `transmit` starts the DMA for each frame, but a start written
-        // while it is still finishing the last frame does nothing: if it
-        // had already read this frame's descriptor as used, it stops, and
-        // the frame waits for the next start, which may be a TCP
-        // retransmission 200 ms later. The used-bit-read interrupt wakes
-        // the stack, which comes here: start it again. (Linux's macb
-        // driver, for the same Cadence MAC, restarts on that interrupt.)
+        // while it is still finishing the last frame does nothing. Having
+        // read the next descriptor as used, it stops, resting on the last
+        // descriptor it sent, so a later start alone reads that one again
+        // and stops at once: the frames queued after it wait until the
+        // stack queues one more into that slot, which may be a TCP
+        // retransmission 200 ms later, and then go out behind it. So with
+        // the DMA idle and frames queued, point it at the oldest of them
+        // (TBQB may be written while it's idle) and start it. Anything it
+        // finished before going idle is marked used by then, so look once
+        // more first: a frame it sent must not go out twice.
         if self.in_flight > 0 && read(TSR) & TSR_TXGO == 0 {
-            write(NCR, read(NCR) | NCR_TSTART);
+            cortex_m::asm::dsb();
+            self.take_sent();
+            if self.in_flight > 0 {
+                write(TBQB, dma_address((&raw const self.descriptors[self.reclaim]).cast()));
+                write(NCR, read(NCR) | NCR_TSTART);
+            }
         }
     }
 
@@ -430,6 +444,9 @@ pub struct Ethernet<'d> {
     hash: u64,
     next_poll: Instant,
     poll: Option<Timer>,
+    /// While frames wait to be sent: the next look at the transmit DMA (see
+    /// `register_waker`).
+    tx_watch: Option<Timer>,
     _reset: Output<'d>,
     _lifetime: PhantomData<&'d ()>,
 }
@@ -567,6 +584,7 @@ impl<'d> Ethernet<'d> {
             hash: 0,
             next_poll: Instant::now(),
             poll: None,
+            tx_watch: None,
             _reset: reset,
             _lifetime: PhantomData,
         })
@@ -661,6 +679,20 @@ impl xarxa_driver::Driver for Ethernet<'_> {
         {
             self.poll = None;
             waker.wake_by_ref();
+        }
+        // The transmit DMA, every millisecond while frames wait, so that
+        // `reclaim` sees it stopped even if no interrupt comes after: the
+        // one that wakes the stack once the DMA has finished can arrive
+        // while TSR still shows it running.
+        self.tx.reclaim();
+        if self.tx.in_flight == 0 {
+            self.tx_watch = None;
+        } else {
+            let watch = self.tx_watch.get_or_insert_with(|| Timer::after(Duration::from_millis(1)));
+            if Pin::new(watch).poll(&mut cx).is_ready() {
+                self.tx_watch = None;
+                waker.wake_by_ref();
+            }
         }
         Ok(())
     }
