@@ -30,7 +30,11 @@
 //!   the others: the SAM D20's IP. `sercom_v0` (no FIFO, 16-bit DATA, one
 //!   interrupt line per SERCOM, bus clocks off at reset, the registers at
 //!   other offsets, synchronisation in STATUS.SYNCBUSY, no RTS/CTS) and
-//!   `port_v0` (`port_v1` with drive strength in place of slew control). Its
+//!   `port_v0` (`port_v1` with drive strength in place of slew control),
+//!   `nvmctrl_v0` (its flash controller: 256-byte rows, a 64-byte page
+//!   buffer written by command) and `wdt_v0` (the others' WDT registers,
+//!   its synchronisation in STATUS, a generic clock, the reset causes in the
+//!   PM). Its
 //!   clocks (SYSCTRL, PM, and a GCLK programmed through ID fields), TC and
 //!   the rest are its own; it has no DMA controller.
 //!
@@ -63,12 +67,14 @@ const ALL: &[&str] = &[
     "rtc_v3",
     "wdt_v2",
     "wdt_v1",
+    "wdt_v0",
     "eic_v1",
     "cmcc",
     "fcw",
     "fcw_v1",
     "fcw_v2",
     "nvmctrl",
+    "nvmctrl_v0",
     "trng",
     "mcan",
     "gmac",
@@ -109,7 +115,7 @@ const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 
-const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0"];
+const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0", "nvmctrl_v0", "wdt_v0"];
 
 fn main() {
     for cfg in ALL {

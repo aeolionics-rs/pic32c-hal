@@ -77,6 +77,8 @@ embassy_hal_internal::peripherals!(
     SERCOM3,
     SERCOM4,
     SERCOM5,
+    NVMCTRL,
+    WDT,
     // The time driver's counter, if on, is its own (TC0 and TC1 both when
     // it pairs them).
     #[cfg(not(any(time_driver = "tc0", time_driver = "tc0_tc1")))]

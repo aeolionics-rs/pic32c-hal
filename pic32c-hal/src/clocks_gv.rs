@@ -11,8 +11,14 @@
 //!
 //! Out of reset OSC8M runs divided by 8 (1 MHz) into generator 0;
 //! generator 2 runs from OSCULP32K for the watchdog; the others are off.
+//! The watchdog's periods count 1.024 kHz cycles, so [`Config::osc8m`] and
+//! [`Config::dfll48m_from_xosc32k`] set generator 2 to OSCULP32K / 32
+//! ([`WATCHDOG_GENERATOR`]); [`Config::boot`] leaves it at OSCULP32K's
+//! 32 kHz.
 //! Flash needs one wait state above 24 MHz at 2.7 V to 3.63 V (three at
-//! 48 MHz below 2.7 V: [`Config::low_voltage`]). The peripherals' bus clocks
+//! 48 MHz below 2.7 V: [`Config::low_voltage`]). [`init`](crate::init) also
+//! sets NVMCTRL.CTRLB.MANW, as the data sheet asks, so only a command writes
+//! a flash page (the [`flash`](crate::flash) driver's way). The peripherals' bus clocks
 //! on APBC (the SERCOMs, TCs, ADC, ...) are off at reset: their drivers turn
 //! them on.
 //!
@@ -45,6 +51,11 @@ const PM_CPUSEL: usize = PM + 0x08;
 const PM_APBCMASK: usize = PM + 0x20;
 
 const NVMCTRL_CTRLB: usize = 0x4100_4004;
+/// CTRLB.MANW: page writes only by command. The data sheet gives it a
+/// reset value of 1 and says to set it at start-up; it reads 0 out of reset
+/// on the bench board, which would have a store to the last word of a page
+/// buffer write the page by itself.
+const NVMCTRL_MANW: u32 = 1 << 7;
 /// The NVM software calibration area's first 64 bits (table 7-7).
 const NVM_CALIBRATION: usize = 0x0080_6020;
 
@@ -84,6 +95,8 @@ const DFLL_FINE_MIDDLE: u32 = 512;
 const SYNCBUSY: u8 = 1 << 7;
 const GENEN: u32 = 1 << 16;
 const IDC: u32 = 1 << 17;
+/// GENCTRL.DIVSEL: divide by 2^(DIV + 1) rather than by DIV.
+const DIVSEL: u32 = 1 << 20;
 const CLKEN: u16 = 1 << 14;
 /// CLKCTRL.ID of the DFLL48M's reference (`GCLK_DFLL48M_REF`).
 const DFLL48M_REF: usize = 0x00;
@@ -103,7 +116,14 @@ pub const CPU_MAX_HZ: u32 = 48_000_000;
 
 /// Each generator's largest integer division (GENDIV.DIV's width, from the
 /// GENDIV register's table: 8 bits, 16 on generator 1, 5 on generator 2).
+/// Powers of two beyond these go by DIVSEL.
 const MAX_DIVIDE: [u32; GENERATORS] = [255, 65_535, 31, 255, 255, 255, 255, 255];
+
+/// The generator the watchdog runs from (its clock out of reset), which it
+/// needs at 1.024 kHz: OSCULP32K divided by 32.
+pub const WATCHDOG_GENERATOR: usize = 2;
+/// The watchdog generator's rate.
+pub const WATCHDOG_HZ: u32 = 1024;
 
 /// OSC8M's prescaler (OSC8M.PRESC).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,8 +181,9 @@ impl Source {
     }
 }
 
-/// A generic clock generator: a source and an integer divider (1 to 255;
-/// up to 65,535 on generator 1, 31 on generator 2).
+/// A generic clock generator: a source and a divider: any from 1 to 255
+/// (up to 65,535 on generator 1, 31 on generator 2), or a larger power of
+/// two (GENCTRL.DIVSEL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Generator {
     pub source: Source,
@@ -273,30 +294,29 @@ impl Config {
         }
     }
 
-    /// OSC8M undivided: 8 MHz on generator 0 for the CPU, and generator 1 at
-    /// 1 MHz (OSC8M / 8), for the time driver.
+    /// OSC8M undivided: 8 MHz on generator 0 for the CPU, generator 1 at
+    /// 1 MHz (OSC8M / 8), for the time driver, and generator 2 at 1.024 kHz
+    /// (OSCULP32K / 32) for the watchdog.
     #[must_use]
     pub const fn osc8m() -> Self {
         let mut config = Self::boot();
         config.osc8m = Osc8mDivide::Div1;
         config.generators[1] = Some(Generator::divided(Source::Osc8m, 8));
+        config.generators[WATCHDOG_GENERATOR] = Some(Generator::divided(Source::OscUlp32k, 32));
         config
     }
 
     /// The CPU at 47.97 MHz from the DFLL48M locked to the 32.768 kHz
-    /// crystal (1,464 times): XOSC32K on generator 2 as the DFLL's reference,
-    /// the DFLL48M on generator 0, and generator 1 at 1 MHz (OSC8M / 8) for
-    /// the time driver, as in [`Config::osc8m`]: the DFLL's rate divides to
-    /// no whole tick rate, so time stays as good as OSC8M.
-    ///
-    /// Generator 2 is the watchdog's out of reset (from OSCULP32K); this
-    /// moves it to the crystal.
+    /// crystal (1,464 times): XOSC32K on generator 3 as the DFLL's reference,
+    /// the DFLL48M on generator 0, and generators 1 and 2 as in
+    /// [`Config::osc8m`]: the DFLL's rate divides to no whole tick rate, so
+    /// time stays as good as OSC8M.
     #[must_use]
     pub const fn dfll48m_from_xosc32k() -> Self {
         let mut config = Self::osc8m();
         config.xosc32k = true;
-        config.generators[2] = Some(Generator::new(Source::Xosc32k));
-        config.dfll = Some(Dfll::ClosedLoop { reference: 2, multiply: 1464 });
+        config.generators[3] = Some(Generator::new(Source::Xosc32k));
+        config.dfll = Some(Dfll::ClosedLoop { reference: 3, multiply: 1464 });
         config.generators[0] = Some(Generator::new(Source::Dfll48m));
         config
     }
@@ -312,7 +332,7 @@ impl Config {
         // then the DFLL48M from its reference, then the rest.
         let mut generators = [None; GENERATORS];
         let rate = |n: usize, g: &Generator, dfll: Option<u32>, gen1: Option<u32>| -> Result<Option<u32>, Error> {
-            if g.divide == 0 || u32::from(g.divide) > MAX_DIVIDE[n] {
+            if division(n, g.divide).is_none() {
                 return Err(Error::Divider(n));
             }
             let source = match g.source {
@@ -432,16 +452,30 @@ fn gclk_sync() -> Result<(), Error> {
     if wait(1_000_000, || read8(GCLK_STATUS) & SYNCBUSY == 0) { Ok(()) } else { Err(Error::GclkTimeout) }
 }
 
+/// Generator `n`'s GENDIV.DIV and GENCTRL's DIVSEL for `divide`: an integer
+/// division within DIV's width, else a power of two by DIVSEL; `None` if
+/// neither can give it.
+fn division(n: usize, divide: u16) -> Option<(u32, u32)> {
+    let divide = u32::from(divide);
+    match divide {
+        0 => None,
+        1 => Some((0, 0)),
+        _ if divide <= MAX_DIVIDE[n] => Some((divide, 0)),
+        _ if divide.is_power_of_two() && divide.trailing_zeros() - 1 <= MAX_DIVIDE[n] => Some((divide.trailing_zeros() - 1, DIVSEL)),
+        _ => None,
+    }
+}
+
 /// Sets generator `n`'s divider, then its source, each written with the
 /// generator's ID, and waits for each to synchronise.
 #[expect(clippy::cast_possible_truncation, reason = "generators number 8")]
 fn set_generator(n: usize, generator: Generator) -> Result<(), Error> {
     let id = n as u32;
-    let divide = if generator.divide == 1 { 0 } else { u32::from(generator.divide) };
+    let (divide, divsel) = division(n, generator.divide).ok_or(Error::Divider(n))?;
     write(GCLK_GENDIV, (divide << 8) | id);
     gclk_sync()?;
-    let idc = if divide % 2 == 1 { IDC } else { 0 };
-    write(GCLK_GENCTRL, (generator.source.code() << 8) | id | idc | GENEN);
+    let idc = if divsel == 0 && divide % 2 == 1 { IDC } else { 0 };
+    write(GCLK_GENCTRL, (generator.source.code() << 8) | id | idc | divsel | GENEN);
     gclk_sync()
 }
 
@@ -515,7 +549,7 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
     // Wait states first, for the fastest the CPU will run meanwhile: its
     // new rate, or OSC8M's undivided while generator 0 still runs from it.
     let fastest = frequencies.cpu().max(config.osc8m.hz());
-    let ctrlb = read(NVMCTRL_CTRLB) & !(0xF << 1);
+    let ctrlb = (read(NVMCTRL_CTRLB) & !(0xF << 1)) | NVMCTRL_MANW;
     write(NVMCTRL_CTRLB, ctrlb | (config.wait_states(fastest) << 1));
     // The CPU undivided.
     write8(PM_CPUSEL, 0);
@@ -600,19 +634,33 @@ mod tests {
         assert_eq!((f.cpu(), f.generators[1]), (8_000_000, Some(1_000_000)));
         assert_eq!(Config::boot().frequencies().unwrap().cpu(), 1_000_000);
         let f = Config::dfll48m_from_xosc32k().frequencies().unwrap();
-        assert_eq!((f.cpu(), f.dfll48m, f.generators[2]), (47_972_352, Some(47_972_352), Some(32_768)));
+        assert_eq!((f.cpu(), f.dfll48m, f.generators[3]), (47_972_352, Some(47_972_352), Some(32_768)));
+        assert_eq!(f.generators[WATCHDOG_GENERATOR], Some(WATCHDOG_HZ));
+        assert_eq!(Config::osc8m().frequencies().unwrap().generators[WATCHDOG_GENERATOR], Some(WATCHDOG_HZ));
         let mut c = Config::osc8m();
         c.generators[0] = None;
         assert_eq!(c.frequencies(), Err(Error::NoCpuClock));
         c = Config::osc8m();
-        c.generators[2] = Some(Generator::divided(Source::Osc8m, 32));
+        c.generators[2] = Some(Generator::divided(Source::Osc8m, 33));
         assert_eq!(c.frequencies(), Err(Error::Divider(2)));
         c = Config::osc8m();
         c.generators[3] = Some(Generator::new(Source::Xosc32k));
         assert_eq!(c.frequencies(), Err(Error::SourceOff(3)));
         c = Config::dfll48m_from_xosc32k();
-        c.dfll = Some(Dfll::ClosedLoop { reference: 2, multiply: 1465 });
+        c.dfll = Some(Dfll::ClosedLoop { reference: 3, multiply: 1465 });
         assert_eq!(c.frequencies(), Err(Error::DfllReference));
+    }
+
+    #[test]
+    fn divisions() {
+        assert_eq!(division(0, 1), Some((0, 0)));
+        assert_eq!(division(0, 255), Some((255, 0)));
+        assert_eq!(division(2, 31), Some((31, 0)));
+        assert_eq!(division(2, 32), Some((4, DIVSEL)), "2^(4+1)");
+        assert_eq!(division(2, 33), None);
+        assert_eq!(division(0, 1024), Some((9, DIVSEL)));
+        assert_eq!(division(1, 1000), Some((1000, 0)));
+        assert_eq!(division(3, 0), None);
     }
 
     #[test]

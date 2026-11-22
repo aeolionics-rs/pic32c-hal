@@ -343,8 +343,15 @@ The plan is to publish to crates.io once these have stabilized.
   registers at other offsets, synchronisation in STATUS.SYNCBUSY, no ERROR
   interrupt, no FIFO, no RTS/CTS); `spi` blocking only (no DMA; SCK rated
   to 8 MHz) and `i2c` blocking and on interrupts (Standard and Fast mode:
-  no Fast-mode Plus, so 400 kHz at most); `uid` (its 128-bit serial
-  number); and the time driver on TC0 and TC1 paired as 32 bits, or with
+  no Fast-mode Plus, so 400 kHz at most); `flash` (a driver of its own for
+  its NVMCTRL, behind the others' API: 256-byte rows erased, 32-bit words
+  written through the 64-byte page buffer and a Write Page command,
+  blocking and async on READY; `init` sets CTRLB.MANW, which the data
+  sheet says resets to 1 but reads 0); `wdt` (the others' driver: its
+  synchronisation in STATUS, its clock generator 2 at 1.024 kHz,
+  OSCULP32K / 32, which the clocks' configurations set with DIVSEL; the
+  reset causes in the PM); `uid` (its 128-bit serial number); and the time
+  driver on TC0 and TC1 paired as 32 bits, or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (the SAM D20's
   TC: a read of the count is asked for first). The other modules aren't
   ported yet (see the to-do list).
@@ -357,7 +364,8 @@ The plan is to publish to crates.io once these have stabilized.
   `uart_echo` (`BufferedUart`), `spi` (on the board's SPI pins, SERCOM5
   PB02/PB03/PB00, in loopback) and `i2c` (on its I2C pins, SERCOM3
   PA22/PA23, with a sensor wired; the PL10's `bme280` driver test doesn't
-  fit in 32 KB, so the Bosch part is read raw). Build with `cargo build --release -p
+  fit in 32 KB, so the Bosch part is read raw), `flash` and `flash_async`
+  (scratch rows at offsets 0x7C00 and 0x6000) and `watchdog`. Build with `cargo build --release -p
   pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-GV_DFP pack (the PL10 board crate's
   examples have the same names and target, so each build replaces the
@@ -370,7 +378,14 @@ The plan is to publish to crates.io once these have stabilized.
   at 8 MHz; and `i2c` against an SHT40 and a BMP280 on one module (its
   4.7 kΩ pull-ups): the scan, a NACK, reads whole and in parts, on
   interrupts at 100 and 400 kHz, 1 MHz refused, and the SHT40 by the
-  `sht4x` driver.
+  `sht4x` driver; `flash` and `flash_async` (row erase 1.17 ms, a 64-byte
+  page 360 µs, 256 bytes 1.34 ms, the CPU stalled through each as flash is
+  one array; partial pages, a second write into a page, runs across a row
+  boundary, misaligned and out-of-range requests refused, an erase
+  dropped part way); and `watchdog`: start, stop and refusals, fed at
+  100 ms (no warning) and 750 ms (a warning each period), then starved (a
+  warning at 501 ms, a reset at about 1 s, RCAUSE watchdog), then a system
+  reset request (RCAUSE system).
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -480,9 +495,8 @@ PIC32CM SG00:
 
 PIC32CM GV00:
 
-- Not yet ported: `flash` (its NVMCTRL: 64-byte pages, 256-byte rows),
-  `wdt`, `rtc`, `exti` and the NMI, `adc`; and the DAC, which no other chip
-  here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
+- Not yet ported: `rtc`, `exti` and the NMI, `adc`; and the DAC, which no
+  other chip here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
   drivers: an async `spi` would need to run on its interrupts.
 - The time driver on TC3 to TC7.
 - SERCOM v0's TX on pad 2 (TXPO 1), which the UART's constructors don't

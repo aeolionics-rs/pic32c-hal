@@ -5,8 +5,8 @@
 //! Drivers for Microchip's PIC32C microcontrollers, so far the PIC32CK SG
 //! and GC (DS60001795), the PIC32CM SG00 (DS60001921) and PL10
 //! (DS40002667) and, in part, the PIC32CM GV00 (DS60001881: clocks, GPIO,
-//! the UART, SPI, I2C, the unique ID and the time driver), in Embassy's
-//! style. As in
+//! the UART, SPI, I2C, flash, the watchdog, the unique ID and the time
+//! driver), in Embassy's style. As in
 //! embassy-stm32, `build.rs` turns the chip feature into cfgs naming its
 //! peripherals' IP versions (`sercom_v6`, `sercom_v1`, `port_v4`, ...), and
 //! the drivers and modules follow those, not the chip:
@@ -99,7 +99,8 @@ pub mod eth;
 pub mod exti;
 #[cfg_attr(fcw, path = "flash.rs")]
 #[cfg_attr(nvmctrl, path = "flash_nvmctrl.rs")]
-#[cfg(any(fcw, nvmctrl))]
+#[cfg_attr(nvmctrl_v0, path = "flash_nvmctrl_v0.rs")]
+#[cfg(any(fcw, nvmctrl, nvmctrl_v0))]
 pub mod flash;
 pub mod gpio;
 #[cfg(any(sercom_v6, sercom_v1, sercom_v0))]
@@ -120,7 +121,7 @@ pub mod uid;
 pub mod usb;
 #[cfg(all(feature = "usbhs", usb_hs))]
 pub mod usbhs;
-#[cfg(any(wdt_v2, wdt_v1))]
+#[cfg(any(wdt_v2, wdt_v1, wdt_v0))]
 pub mod wdt;
 
 /// The chip's peripheral access crate, for what the HAL doesn't cover yet.

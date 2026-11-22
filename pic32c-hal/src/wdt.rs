@@ -7,6 +7,13 @@
 //! reset (RSTC.RCAUSE, chapter 29). The SG00's is the same IP; the PL10's
 //! (DS40002667 chapters 20 and 16) differs only in SYNCBUSY's CLEAR bit,
 //! its clock (OSC32K's 1.024 kHz output) and the reset causes it records.
+//! The GV00's (`wdt_v0`, the SAM D20's, DS60001881 chapter 17) has the same
+//! CTRL, CONFIG, EWCTRL and interrupt registers, its synchronisation in
+//! STATUS.SYNCBUSY and CLEAR at another offset; it counts a generic clock,
+//! [`clocks::WATCHDOG_GENERATOR`](crate::clocks::WATCHDOG_GENERATOR), which
+//! must run at 1.024 kHz (the clocks' `osc8m` and `dfll48m_from_xosc32k`
+//! configurations set it so); and the PM records the reset causes
+//! (PM.RCAUSE).
 //!
 //! The watchdog counts the 1.024 kHz output of the ultra-low-power 32 kHz
 //! oscillator, which isn't trimmed to the crystal: allow for its tolerance
@@ -38,23 +45,38 @@ const WDT: usize = 0x4401_6000;
 const WDT: usize = 0x4400_E000;
 #[cfg(pic32cm_pl)]
 const WDT: usize = 0x4000_2000;
+#[cfg(pic32cm_gv)]
+const WDT: usize = 0x4000_1000;
 const CTRLA: usize = WDT;
 const CONFIG: usize = WDT + 0x01;
 const EWCTRL: usize = WDT + 0x02;
 const INTENCLR: usize = WDT + 0x04;
 const INTENSET: usize = WDT + 0x05;
 const INTFLAG: usize = WDT + 0x06;
+#[cfg(not(wdt_v0))]
 const SYNCBUSY: usize = WDT + 0x08;
+#[cfg(not(wdt_v0))]
 const CLEAR: usize = WDT + 0x0C;
+/// `wdt_v0`: STATUS, whose SYNCBUSY (bit 7) covers every write.
+#[cfg(wdt_v0)]
+const STATUS: usize = WDT + 0x07;
+#[cfg(wdt_v0)]
+const CLEAR: usize = WDT + 0x08;
 
 const ENABLE: u8 = 1 << 1;
 const ALWAYSON: u8 = 1 << 7;
 const EW: u8 = 1 << 0;
+#[cfg(not(wdt_v0))]
 const SYNC_ENABLE: u32 = 1 << 1;
 #[cfg(wdt_v2)]
 const SYNC_CLEAR: u32 = 1 << 5;
 #[cfg(wdt_v1)]
 const SYNC_CLEAR: u32 = 1 << 4;
+/// `wdt_v0`: one bit for every write.
+#[cfg(wdt_v0)]
+const SYNC_ENABLE: u32 = 1 << 7;
+#[cfg(wdt_v0)]
+const SYNC_CLEAR: u32 = 1 << 7;
 /// The one value CLEAR takes that doesn't reset the chip.
 const CLEAR_KEY: u8 = 0xA5;
 
@@ -66,6 +88,9 @@ const RCAUSE: usize = 0x4500_4000;
 /// byte.
 #[cfg(pic32cm_pl)]
 const RCAUSE: usize = 0x4000_0C04;
+/// The GV00's, in the PM: a byte.
+#[cfg(pic32cm_gv)]
+const RCAUSE: usize = 0x4000_0438;
 
 /// RCAUSE's bits: power-on, brown-out, external, watchdog, system,
 /// backup, lockup.
@@ -92,6 +117,17 @@ mod cause {
     pub const SYSTEM: u16 = 1 << 5;
     pub const LOCKUP: u16 = 1 << 6;
     pub const NAMES: [&str; 7] = ["POR", "BOR VDD", "", "external", "watchdog", "system", "lockup"];
+}
+/// The GV00's PM.RCAUSE: no lockup, no backup sleep; brown-out on the core
+/// (BOD12) or on VDD (BOD33).
+#[cfg(wdt_v0)]
+mod cause {
+    pub const POWER_ON: u16 = 1 << 0;
+    pub const BROWN_OUT: u16 = 0b110;
+    pub const EXTERNAL: u16 = 1 << 4;
+    pub const WATCHDOG: u16 = 1 << 5;
+    pub const SYSTEM: u16 = 1 << 6;
+    pub const NAMES: [&str; 7] = ["POR", "BOD12", "BOD33", "", "external", "watchdog", "system"];
 }
 
 /// A watchdog period: a number of cycles of its 1.024 kHz clock.
@@ -175,14 +211,32 @@ fn write8(address: usize, value: u8) {
 
 fn syncbusy() -> u32 {
     // SAFETY: WDT's SYNCBUSY.
-    unsafe { read_volatile(SYNCBUSY as *const u32) }
+    #[cfg(not(wdt_v0))]
+    return unsafe { read_volatile(SYNCBUSY as *const u32) };
+    // `wdt_v0`: STATUS's SYNCBUSY, at the same bit as SYNC_ENABLE and
+    // SYNC_CLEAR.
+    #[cfg(wdt_v0)]
+    return u32::from(read8(STATUS));
 }
 
 impl<'d> Watchdog<'d> {
     /// The watchdog, its early-warning interrupt unmasked (it fires only
     /// once [`start`](Self::start) asks for a warning).
+    ///
+    /// # Panics
+    ///
+    /// On the GV00, if
+    /// [`clocks::WATCHDOG_GENERATOR`](crate::clocks::WATCHDOG_GENERATOR)
+    /// isn't configured at 1.024 kHz.
     #[must_use]
     pub fn new(_wdt: Peri<'d, peripherals::WDT>, _irq: impl Binding<typelevel::WDT, InterruptHandler> + 'd) -> Self {
+        #[cfg(wdt_v0)]
+        {
+            use crate::clocks::{WATCHDOG_GENERATOR, WATCHDOG_HZ, enable_channel, generator_hz};
+            assert!(generator_hz(WATCHDOG_GENERATOR) == Some(WATCHDOG_HZ), "watchdog: generator 2 must run at 1.024 kHz");
+            // GCLK_WDT, channel 1; it already is, unless a fuse locked it.
+            enable_channel(1, WATCHDOG_GENERATOR);
+        }
         Interrupt::WDT.unpend();
         // SAFETY: the binding makes the vector call the handler.
         unsafe { Interrupt::WDT.enable() };
@@ -211,10 +265,15 @@ impl<'d> Watchdog<'d> {
             return Err(Error::EarlyWarningTooLate);
         }
         write8(CONFIG, period as u8);
+        // `wdt_v0` synchronises CONFIG and EWCTRL too.
+        #[cfg(wdt_v0)]
+        while syncbusy() & SYNC_ENABLE != 0 {}
         write8(INTFLAG, EW);
         match early_warning {
             Some(warning) => {
                 write8(EWCTRL, warning as u8);
+                #[cfg(wdt_v0)]
+                while syncbusy() & SYNC_ENABLE != 0 {}
                 write8(INTENSET, EW);
             }
             None => write8(INTENCLR, EW),
@@ -274,7 +333,11 @@ impl ResetCause {
     #[must_use]
     pub fn read() -> Self {
         // SAFETY: RSTC's RCAUSE, read only.
-        Self(unsafe { read_volatile(RCAUSE as *const u16) })
+        #[cfg(not(wdt_v0))]
+        return Self(unsafe { read_volatile(RCAUSE as *const u16) });
+        // SAFETY: the PM's RCAUSE, a byte, read only.
+        #[cfg(wdt_v0)]
+        return Self(u16::from(unsafe { read_volatile(RCAUSE as *const u8) }));
     }
 
     /// Power-on (POR, or PORCORE on the PIC32CK and the SG00).
@@ -308,19 +371,23 @@ impl ResetCause {
         self.0 & cause::SYSTEM != 0
     }
 
-    /// Waking from backup sleep (never on the PL10, which has none).
+    /// Waking from backup sleep (never on the PL10 or the GV00, which have
+    /// none).
     #[must_use]
     pub const fn backup(self) -> bool {
         #[cfg(wdt_v2)]
         return self.0 & cause::BACKUP != 0;
-        #[cfg(wdt_v1)]
+        #[cfg(not(wdt_v2))]
         return false;
     }
 
-    /// A CPU lockup.
+    /// A CPU lockup (never on the GV00, whose PM doesn't record it).
     #[must_use]
     pub const fn lockup(self) -> bool {
-        self.0 & cause::LOCKUP != 0
+        #[cfg(not(wdt_v0))]
+        return self.0 & cause::LOCKUP != 0;
+        #[cfg(wdt_v0)]
+        return false;
     }
 }
 
@@ -358,6 +425,17 @@ mod tests {
         assert!(ResetCause(0x02).power_on());
         assert!(ResetCause(0x80).system());
         assert_eq!(format!("{:?}", ResetCause(0x41)), "ResetCause(0x0041 POR watchdog)");
+    }
+
+    #[test]
+    #[cfg(wdt_v0)]
+    fn causes() {
+        assert!(ResetCause(0x20).watchdog());
+        assert!(ResetCause(0x01).power_on());
+        assert!(ResetCause(0x40).system());
+        assert!(ResetCause(0x04).brown_out());
+        assert!(!ResetCause(0xFF).lockup());
+        assert_eq!(format!("{:?}", ResetCause(0x21)), "ResetCause(0x0021 POR watchdog)");
     }
 
     #[test]
