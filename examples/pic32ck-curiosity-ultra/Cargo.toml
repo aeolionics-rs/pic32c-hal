@@ -177,6 +177,11 @@ test = false
 bench = false
 
 [[example]]
+name = "soak"
+test = false
+bench = false
+
+[[example]]
 name = "can_listen"
 test = false
 bench = false

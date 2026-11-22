@@ -248,7 +248,10 @@ The plan is to publish to crates.io once these have stabilized.
 loopback, classic and FD, filters; `LOOPBACK_CLASSIC=1` for a classic
 channel), and `can_ping` against `can_echo` on another node (250 kbit/s, or FD
 at 500 kbit/s and `CAN_FD_DATA`, 2 Mbit/s by default, when both are built
-with `CAN_FD=1`). They report over the PKoB4's virtual COM port.
+with `CAN_FD=1`). They report over the PKoB4's virtual COM port. `soak`
+runs USB full and high speed, Ethernet and CAN0 at once, each an echo as in
+those programs, for as long as `tools/host/soak.py` (and a CAN node sending
+test frames) keeps them busy, with a line of counters every 10 s.
 
 - `docs/bench.md`: the boards and wiring that run every example.
 - `tools/host/`: the host-side scripts that drive the bench programs (see

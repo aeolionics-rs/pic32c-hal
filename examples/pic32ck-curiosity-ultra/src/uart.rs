@@ -46,6 +46,12 @@ impl Uart {
         while !critical_section::with(|cs| LOG.borrow_ref_mut(cs).as_mut().is_none_or(|uart| uart.try_write(byte))) {}
     }
 
+    /// Sends one byte if there is room, `false` if not. Before
+    /// [`Uart::init`], it's lost (and `true`).
+    pub fn try_write_byte(&mut self, byte: u8) -> bool {
+        critical_section::with(|cs| LOG.borrow_ref_mut(cs).as_mut().is_none_or(|uart| uart.try_write(byte)))
+    }
+
     /// Waits until everything written has gone out.
     pub fn flush(&mut self) {
         while !critical_section::with(|cs| LOG.borrow_ref(cs).as_ref().is_none_or(uart::Uart::is_flushed)) {}

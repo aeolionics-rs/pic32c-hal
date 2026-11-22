@@ -31,6 +31,9 @@ Over serial (PORT is the device, e.g. `/dev/ttyACM0` or `/dev/cu.usbmodem…`):
 - `cdc_hs_test.py PORT [MEGABYTES]`: every length to 1,100 bytes, then a
   stream each way (`usbhs_echo`).
 - `vcom.py PORT SECONDS [BAUD]`: a timestamped capture of a board's log.
+- `soak.py [--fs PORT] [--hs PORT] [--host HOST] [--hours H] [--log FILE]`:
+  keeps `soak`'s USB ports and network busy, every byte checked, until
+  stopped, with a summary a minute (needs pyserial).
 
 Other:
 
