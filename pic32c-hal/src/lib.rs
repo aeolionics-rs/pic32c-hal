@@ -92,13 +92,13 @@ pub mod exti;
 #[cfg(fcw)]
 pub mod flash;
 pub mod gpio;
-#[cfg(sercom_v6)]
+#[cfg(any(sercom_v6, sercom_v1))]
 pub mod i2c;
 pub mod mode;
 #[cfg(rtc_v3)]
 pub mod rtc;
 pub mod sercom;
-#[cfg(all(sercom_v6, dma))]
+#[cfg(all(any(sercom_v6, sercom_v1), dma))]
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time;

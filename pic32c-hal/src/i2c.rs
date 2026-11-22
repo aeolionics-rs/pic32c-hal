@@ -2,7 +2,8 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! A SERCOM as an I2C host (DS60001795 section 35.8): 7-bit addresses,
+//! A SERCOM as an I2C host (DS60001795 section 35.8; the PL10's older
+//! SERCOM, `sercom_v1`, the same less CTRLC): 7-bit addresses,
 //! Standard mode, Fast mode and Fast-mode Plus (100 kHz, 400 kHz, 1 MHz),
 //! repeated starts between a transaction's reads and writes.
 //!
@@ -13,7 +14,8 @@
 //! [`I2c::new_blocking`] waits on the flags. [`I2c::new`] takes a
 //! [`bind_interrupts!`](crate::bind_interrupts) type binding the SERCOM's
 //! `SERCOMn_0` (MB, host on bus) and `SERCOMn_1` (SB, client on bus) vectors
-//! to [`InterruptHandler`], and waits on them. Both implement embedded-hal's
+//! (on the PL10, its one vector, `SERCOMn`) to [`InterruptHandler`], and
+//! waits on them. Both implement embedded-hal's
 //! `I2c`; the interrupt one also embedded-hal-async's. SCL held low for
 //! 25 to 35 ms (a stuck device, no pull-ups) gives [`Error::Timeout`] and a
 //! reset of the SERCOM; the blocking calls also give up after
@@ -38,6 +40,7 @@ pub type InterruptHandler<T> = crate::uart::InterruptHandler<T>;
 
 const CTRLA: usize = 0x00;
 const CTRLB: usize = 0x04;
+#[cfg(sercom_v6)]
 const CTRLC: usize = 0x08;
 const BAUD: usize = 0x0C;
 const INTENSET: usize = 0x16;
@@ -96,12 +99,13 @@ pub struct Config {
 
 impl Default for Config {
     /// 100 kHz, 100 ns rise, from generator 3 (48 MHz in
-    /// `clocks::Config::pll_from_xosc`).
+    /// `clocks::Config::pll_from_xosc`; on the PL10, generator 0, the
+    /// CPU's 24 MHz).
     fn default() -> Self {
         Self {
             frequency: 100_000,
             rise_ns: 100,
-            generator: 3,
+            generator: if cfg!(sercom_v1) { 0 } else { 3 },
         }
     }
 }
@@ -251,6 +255,8 @@ enum Wait {
 
 impl<M> I2c<'_, M> {
     fn start<T: Instance>(sda: &impl SealedPin, sda_function: Function, scl: &impl SealedPin, scl_function: Function, config: Config) -> Result<Self, ConfigError> {
+        #[cfg(sercom_v1)]
+        crate::clocks::enable_apbc(T::APBC);
         let mut i2c = Self {
             base: T::BASE,
             state: T::state(),
@@ -293,6 +299,7 @@ impl<M> I2c<'_, M> {
         write32(self.base, CTRLA, self.ctrla);
         // Smart mode off: each byte's ack is the driver's command.
         write32(self.base, CTRLB, 0);
+        #[cfg(sercom_v6)]
         write32(self.base, CTRLC, 0);
         write32(self.base, BAUD, self.baud);
         write32(self.base, CTRLA, self.ctrla | ENABLE);
@@ -443,7 +450,7 @@ impl<M> I2c<'_, M> {
                         self.address(address, false, wait).await?;
                     }
                     for &byte in &**bytes {
-                        write32(self.base, DATA, u32::from(byte));
+                        write_data(self.base, byte);
                         self.sync_sysop();
                         self.wait(wait).await?;
                         if read16(self.base, STATUS) & RXNACK != 0 {
@@ -468,9 +475,7 @@ impl<M> I2c<'_, M> {
                         if j > 0 || !fresh {
                             self.wait(wait).await?;
                         }
-                        #[expect(clippy::cast_possible_truncation, reason = "8-bit data")]
-                        let byte = read32(self.base, DATA) as u8;
-                        *slot = byte;
+                        *slot = read_data(self.base);
                         let final_byte = j + 1 == n && last_of_run;
                         if !final_byte {
                             // ACK, and read the next.
@@ -497,9 +502,11 @@ impl<M> I2c<'_, M> {
         if direction != Some(true) || matches!(operations.last(), Some(Operation::Write(_))) {
             self.stop();
         }
-        // Ready for the next: ACK by default.
-        write32(self.base, CTRLB, 0);
-        self.sync_sysop();
+        // CTRLB is left as it is: each read command above sets its own ack
+        // action, so the next transaction needs no reset of it, and
+        // clearing ACKACT now would race the NACK still going out (on the
+        // PL10 at 100 kHz it went out as an ACK, the device kept SDA, the
+        // stop failed and the next transaction hung).
         Ok(())
     }
 }
@@ -576,6 +583,26 @@ impl embedded_hal_async::i2c::I2c<SevenBitAddress> for I2c<'_, Async> {
     async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         I2c::transaction(self, address, operations).await
     }
+}
+
+/// DATA, written: 32 bits wide on `sercom_v6`, 8 on `sercom_v1`.
+fn write_data(base: usize, byte: u8) {
+    #[cfg(sercom_v6)]
+    write32(base, DATA, u32::from(byte));
+    #[cfg(sercom_v1)]
+    write8(base, DATA, byte);
+}
+
+/// DATA, read, likewise.
+fn read_data(base: usize) -> u8 {
+    #[cfg(sercom_v6)]
+    {
+        #[expect(clippy::cast_possible_truncation, reason = "8-bit data")]
+        let byte = read32(base, DATA) as u8;
+        byte
+    }
+    #[cfg(sercom_v1)]
+    read8(base, DATA)
 }
 
 fn reg<T>(base: usize, offset: usize) -> *mut T {

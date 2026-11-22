@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! A SERCOM as an SPI host (DS60001795 section 35.7): 8-bit words, any of
-//! the four modes, MSB or LSB first, SCK from the SERCOM's core clock
+//! A SERCOM as an SPI host (DS60001795 section 35.7; the PL10's older
+//! SERCOM, `sercom_v1`, the same less CTRLC): 8-bit words, any of the four
+//! modes, MSB or LSB first, SCK from the SERCOM's core clock
 //! (`fref / (2 × (BAUD + 1))`, so at most half of it).
 //!
 //! The pins go by SERCOM pad, [`Pad<T, N>`] saying which pins can be pad `N`
@@ -35,6 +36,7 @@ use crate::{Peri, gpio};
 
 const CTRLA: usize = 0x00;
 const CTRLB: usize = 0x04;
+#[cfg(sercom_v6)]
 const CTRLC: usize = 0x08;
 const BAUD: usize = 0x0C;
 const INTFLAG: usize = 0x18;
@@ -105,13 +107,14 @@ pub struct Config {
 
 impl Default for Config {
     /// 1 MHz, mode 0, MSB first, from generator 3 (48 MHz in
-    /// `clocks::Config::pll_from_xosc`).
+    /// `clocks::Config::pll_from_xosc`; on the PL10, generator 0, the
+    /// CPU's 24 MHz).
     fn default() -> Self {
         Self {
             frequency: 1_000_000,
             mode: embedded_hal::spi::MODE_0,
             bit_order: BitOrder::MsbFirst,
-            generator: 3,
+            generator: if cfg!(sercom_v1) { 0 } else { 3 },
             loopback: false,
             slew: Slew::Fast,
         }
@@ -379,6 +382,8 @@ impl<'d, M> Spi<'d, M> {
         // Nothing is touched if `config` can't be met.
         validate(&config)?;
         let base = T::BASE;
+        #[cfg(sercom_v1)]
+        crate::clocks::enable_apbc(T::APBC);
         // The reset synchronises on the core clock, so that first.
         crate::clocks::enable_channel(T::state().gclk_channel, config.generator);
         crate::sercom::reset(base);
@@ -438,6 +443,7 @@ impl<'d, M> Spi<'d, M> {
         // 8-bit characters, no hardware SS.
         write32(base, CTRLB, if receives { RXEN } else { 0 });
         while read32(base, SYNCBUSY) & SYNC_CTRLB != 0 {}
+        #[cfg(sercom_v6)]
         write32(base, CTRLC, 0);
         write8(base, BAUD, baud);
         write32(base, CTRLA, ctrla | ENABLE);
@@ -496,7 +502,7 @@ impl<'d, M> Spi<'d, M> {
     /// back (0 otherwise).
     fn exchange(&mut self, byte: u8) -> Result<u8, Error> {
         while read8(self.base, INTFLAG) & DRE == 0 {}
-        write32(self.base, DATA, u32::from(byte));
+        write_data(self.base, byte);
         if !self.receives {
             return Ok(0);
         }
@@ -505,9 +511,7 @@ impl<'d, M> Spi<'d, M> {
             write16(self.base, STATUS, BUFOVF);
             return Err(Error::Overrun);
         }
-        #[expect(clippy::cast_possible_truncation, reason = "8-bit characters")]
-        let back = read32(self.base, DATA) as u8;
-        Ok(back)
+        Ok(read_data(self.base))
     }
 }
 
@@ -627,6 +631,23 @@ impl embedded_hal_async::spi::SpiBus for Spi<'_, Async> {
         // Each DMA transfer ends with its last byte in, or out.
         core::future::ready(Ok(())).await
     }
+}
+
+/// DATA, written: 32 bits wide on `sercom_v6`, 16 on `sercom_v1`.
+fn write_data(base: usize, byte: u8) {
+    #[cfg(sercom_v6)]
+    write32(base, DATA, u32::from(byte));
+    #[cfg(sercom_v1)]
+    write16(base, DATA, u16::from(byte));
+}
+
+/// DATA, read, likewise: 8-bit characters.
+#[expect(clippy::cast_possible_truncation, reason = "8-bit characters")]
+fn read_data(base: usize) -> u8 {
+    #[cfg(sercom_v6)]
+    return read32(base, DATA) as u8;
+    #[cfg(sercom_v1)]
+    return read16(base, DATA) as u8;
 }
 
 fn reg<T>(base: usize, offset: usize) -> *mut T {

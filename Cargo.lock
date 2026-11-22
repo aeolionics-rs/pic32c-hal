@@ -1351,14 +1351,17 @@ dependencies = [
 name = "pic32cm-pl10-curiosity-nano"
 version = "0.1.0"
 dependencies = [
+ "bme280",
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
  "embassy-executor",
  "embassy-futures",
  "embassy-time",
+ "embedded-hal 1.0.0",
  "panic-halt",
  "pic32c-hal",
+ "sht4x",
  "static_cell",
 ]
 

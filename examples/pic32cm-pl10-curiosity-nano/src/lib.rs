@@ -10,8 +10,9 @@
 //! - The debugger's virtual COM port: SERCOM1, TX [`VCOM_TX`] (PB00, pad 0)
 //!   and RX [`VCOM_RX`] (PB01, pad 1), both on function D.
 //! - LED0: PB02, lit low.
-//! - SERCOM0's pads 0/1 on PA04/PA05 (function C) are free for a second
-//!   UART.
+//! - SERCOM0, the other SERCOM, on function C: the board's SPI pins (MOSI
+//!   PA04, SCK PA05, SS PA06, MISO PA07), its I2C pins (SDA PA00, SCL
+//!   PA01), or a second UART (PA04/PA05, pads 0/1).
 //!
 //! Flash with pyOCD and Microchip's PIC32CM-PL_DFP pack (it runs the boot
 //! ROM's handshake); probe-rs can't reset this chip, and versions before
