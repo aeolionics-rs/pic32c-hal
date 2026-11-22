@@ -2,25 +2,33 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Program flash (PFM) erase and write on Microchip's PIC32CK, through its
-//! Flash Controller, Write (FCW; DS60001795 chapter 31.2), as an
-//! [`embedded_storage`] [`NorFlash`].
+//! Program flash (PFM) erase and write through the Flash Controller, Write
+//! (FCW), as an [`embedded_storage`] [`NorFlash`]: the PIC32CK's (FCW 03433,
+//! DS60001795 chapter 31.2) and the PIC32CM SG00's (FCW 04971, DS60001921
+//! chapter 33.1). They differ in their register map (the SG00 has NVMOP in
+//! a CTRLOP register of its own), their write word and their panels.
 //!
-//! Offsets count from the start of PFM (`0x0C00_0000`). PFM is two panels of
-//! half the capacity each; while one is erased or written, reads from it
-//! (code included) stall until the operation ends, and reads from the other
-//! carry on ("live update").
+//! Offsets count from the start of PFM (`0x0C00_0000`). On the PIC32CK PFM
+//! is two panels of half the capacity each; while one is erased or written,
+//! reads from it (code included) stall until the operation ends, and reads
+//! from the other carry on ("live update"). The SG00's 512 KB is one panel,
+//! so every read from PFM stalls while an operation runs.
 //!
 //! - Erase is by 4 KiB page.
-//! - Writes are in 32-byte flash words ("quad writes"), each written once
-//!   after an erase: the FCW stores ECC with each, whatever the ECC mode.
-//!   Single 8-byte writes, which store only parity and which the ECC-on mode
-//!   refuses, aren't offered. A whole 1 KiB row whose data is in SRAM goes in
-//!   one row write, which the FCW reads from SRAM itself.
-//! - The FCW is shared with the HSM through a hardware mutex; an operation
-//!   that finds the HSM holding it fails with [`Error::Busy`].
-//! - After each operation the CMCC (the L1 cache in front of flash), if on,
-//!   is invalidated, so reads see the new content.
+//! - Writes are in flash words ([`WORD_SIZE`]: 32 bytes on the PIC32CK, 16
+//!   on the SG00; "quad writes"), each written once after an erase: the FCW
+//!   stores ECC with each, whatever the ECC mode. Single writes, which store
+//!   only parity and which the ECC-on mode refuses, aren't offered. A whole
+//!   1 KiB row whose data is in SRAM goes in one row write, which the FCW
+//!   reads from SRAM itself.
+//! - The FCW has a hardware mutex, shared on the PIC32CK with the HSM; an
+//!   operation that finds another owner holding it fails with
+//!   [`Error::Busy`].
+//! - On the PIC32CK, after each operation the CMCC (the L1 cache in front of
+//!   flash), if on, is invalidated, so reads see the new content.
+//! - On the SG00 every write is pre-programmed (CTRLOP.PREPG), as its data
+//!   sheet recommends for all writes (section 33.1.13.1): about 20 % slower,
+//!   twice the endurance and retention.
 //!
 //! [`Flash::new_blocking`] waits on the FCW by polling. [`Flash::new`]
 //! (async, as an [`embedded_storage_async`] `NorFlash` too) waits on its
@@ -29,7 +37,8 @@
 //! erase or write the panel the program doesn't run from (with the program
 //! in panel 1, panel 2, offsets from [`PANEL_SIZE`]), and keep the interrupt
 //! handlers there too, or the CPU stalls on fetches (the CMCC hides that
-//! only for code it holds). A page erase takes up to 20 ms (`NVM_11`), a
+//! only for code it holds). On the SG00, with one panel, code must run from
+//! SRAM for anything to run meanwhile. A page erase takes up to 20 ms (`NVM_11`), a
 //! double word up to 20 µs (`NVM_7`).
 //!
 //! An async operation dropped part way finishes before the drop returns (a
@@ -58,23 +67,42 @@ pub const PAGE_SIZE: usize = 4096;
 /// The largest single write, from SRAM.
 pub const ROW_SIZE: usize = 1024;
 /// The write unit: one flash word.
+#[cfg(fcw_v1)]
 pub const WORD_SIZE: usize = 32;
+/// The write unit: one flash word.
+#[cfg(fcw_v2)]
+pub const WORD_SIZE: usize = 16;
 /// Each of PFM's two panels: offsets from here are in panel 2.
+#[cfg(fcw_v1)]
 pub const PANEL_SIZE: usize = crate::FLASH_SIZE / 2;
+/// PFM's one panel.
+#[cfg(fcw_v2)]
+pub const PANEL_SIZE: usize = crate::FLASH_SIZE;
 
 const FCW: usize = 0x4400_4000;
-const CTRLA: usize = FCW;
+/// Where NVMOP goes: CTRLA on the PIC32CK, CTRLOP on the SG00.
+#[cfg(fcw_v1)]
+const NVMOP: usize = FCW;
+#[cfg(fcw_v2)]
+const NVMOP: usize = FCW + 0x04;
 const MUTEX: usize = FCW + 0x08;
 const INTENCLR: usize = FCW + 0x0C;
 const INTENSET: usize = FCW + 0x10;
 const INTFLAG: usize = FCW + 0x14;
+/// The SG00 has INTFLAGSET at 0x18, so the rest move up a word.
+#[cfg(fcw_v1)]
 const STATUS: usize = FCW + 0x18;
-const KEY: usize = FCW + 0x1C;
-const ADDR: usize = FCW + 0x20;
-const SRCADDR: usize = FCW + 0x24;
-const DATA: usize = FCW + 0x28;
+#[cfg(fcw_v2)]
+const STATUS: usize = FCW + 0x1C;
+const KEY: usize = STATUS + 0x04;
+const ADDR: usize = STATUS + 0x08;
+const SRCADDR: usize = STATUS + 0x0C;
+const DATA: usize = STATUS + 0x10;
+/// CTRLOP.PREPG: pre-program each write.
+#[cfg(fcw_v2)]
+const PREPG: u32 = 1 << 7;
 
-/// KEY: the unlock code with WRKEY, which unlocks CTRLA for one operation.
+/// KEY: the unlock code with WRKEY, which unlocks NVMOP for one operation.
 const WRKEY: u32 = 0x91C3_2C01;
 /// MUTEX: LOCK with OWNER 1, the CPU.
 const MUTEX_CPU: u32 = 0b011;
@@ -82,11 +110,18 @@ const MUTEX_MASK: u32 = 0b111;
 const STATUS_BUSY: u32 = 1;
 const DONE: u32 = 1 << 0;
 /// KEYERR, CFGERR, FIFOERR, BUSERR, WPERR, OPERR, SECERR, RSTERR, WRERR.
+#[cfg(fcw_v1)]
 const ERRORS: u32 = 0x3FFE;
+/// KEYERR, CFGERR, FIFOERR, BUSERR, WPERR, OPERR, HTDPGM, RSTERR, WRERR.
+#[cfg(fcw_v2)]
+const ERRORS: u32 = 0x317E;
 
+#[cfg(pic32ck)]
 const SRAM: core::ops::Range<usize> = 0x2000_0000..0x2008_0000;
+#[cfg(pic32cm_sg)]
+const SRAM: core::ops::Range<usize> = 0x2000_0000..0x2002_0000;
 
-/// NVMOP values (CTRLA bits 3:0).
+/// NVMOP values (bits 3:0 of CTRLA on the PIC32CK, of CTRLOP on the SG00).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Operation {
     QuadWrite = 0b0010,
@@ -101,7 +136,7 @@ pub enum Error {
     NotAligned,
     /// The range runs past the flash.
     OutOfBounds,
-    /// The HSM holds the FCW's mutex.
+    /// Another owner (the PIC32CK's HSM) holds the FCW's mutex.
     Busy,
     /// The FCW reported errors: its INTFLAG bits (`WPERR` 0x20 for a
     /// write-protected target, `SECERR` 0x80, `WRERR` 0x2000, …).
@@ -245,7 +280,10 @@ fn start(operation: Operation, address: u32, setup: impl FnOnce()) -> Result<(),
     write(ADDR, address);
     setup();
     write(KEY, WRKEY);
-    write(CTRLA, operation as u32);
+    #[cfg(fcw_v1)]
+    write(NVMOP, operation as u32);
+    #[cfg(fcw_v2)]
+    write(NVMOP, operation as u32 | if operation == Operation::PageErase { 0 } else { PREPG });
     Ok(())
 }
 
@@ -259,6 +297,7 @@ fn finish() -> Result<(), Error> {
     let flags = read(INTFLAG);
     write(INTFLAG, flags);
     write(MUTEX, 0);
+    #[cfg(cmcc)]
     crate::cache::invalidate();
     if flags & ERRORS == 0 { Ok(()) } else { Err(Error::Failed(flags & ERRORS)) }
 }
@@ -421,7 +460,7 @@ mod tests {
     #[test]
     fn words_only_from_flash() {
         let plan = plan(0, 2048, false);
-        assert_eq!(plan.len(), 64);
+        assert_eq!(plan.len(), 2048 / WORD_SIZE);
         assert!(plan.iter().all(|(op, _)| *op == Operation::QuadWrite));
     }
 
@@ -429,18 +468,20 @@ mod tests {
     fn rows_where_they_fit_from_sram() {
         assert_eq!(plan(0, 2048, true), [(Operation::RowWrite, 0), (Operation::RowWrite, 1024)]);
         // Words up to the row boundary, a row, then words.
-        let plan = plan(1024 - 64, 64 + 1024 + 32, true);
-        assert_eq!(plan[..2], [(Operation::QuadWrite, 0), (Operation::QuadWrite, 32)]);
-        assert_eq!(plan[2], (Operation::RowWrite, 64));
-        assert_eq!(plan[3..], [(Operation::QuadWrite, 64 + 1024)]);
+        let w = WORD_SIZE;
+        let plan = plan(1024 - 2 * w, 2 * w + 1024 + w, true);
+        assert_eq!(plan[..2], [(Operation::QuadWrite, 0), (Operation::QuadWrite, w)]);
+        assert_eq!(plan[2], (Operation::RowWrite, 2 * w));
+        assert_eq!(plan[3..], [(Operation::QuadWrite, 2 * w + 1024)]);
     }
 
     #[test]
     fn checks_alignment_and_bounds() {
         let capacity = 2 << 20;
-        assert_eq!(check(0, 32, WORD_SIZE, capacity), Ok(()));
-        assert_eq!(check(16, 32, WORD_SIZE, capacity), Err(Error::NotAligned));
-        assert_eq!(check(0, 31, WORD_SIZE, capacity), Err(Error::NotAligned));
+        let w = u32::try_from(WORD_SIZE).unwrap();
+        assert_eq!(check(0, WORD_SIZE, WORD_SIZE, capacity), Ok(()));
+        assert_eq!(check(w / 2, WORD_SIZE, WORD_SIZE, capacity), Err(Error::NotAligned));
+        assert_eq!(check(0, WORD_SIZE - 1, WORD_SIZE, capacity), Err(Error::NotAligned));
         assert_eq!(check(0, 4096, PAGE_SIZE, capacity), Ok(()));
         assert_eq!(check(4096 * 511, 8192, PAGE_SIZE, capacity), Err(Error::OutOfBounds));
         assert_eq!(check(0xFFFF_FFE0, 64, WORD_SIZE, capacity), Err(Error::OutOfBounds));

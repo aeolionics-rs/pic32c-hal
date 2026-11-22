@@ -220,14 +220,17 @@ The plan is to publish to crates.io once these have stabilized.
   and the message RAM's offset is in the wrapper), and `dma` on its DMAC
   (the SAM D21/C21 kind, `dma_u2223`: 8 channels, descriptors in SRAM, the
   CK's `dma` API; a ring is two half-ring descriptors linked to each
-  other). Not yet: flash (another FCW), and the rest.
+  other), and `flash` on its FCW (04971: NVMOP in CTRLOP, 16-byte flash
+  words, one panel, every write pre-programmed; blocking and async). Not
+  yet: the rest.
 - `examples/pic32cm-sg00-curiosity-pro`: board support for the SG00
   Curiosity Pro (EV53V42A; VCOM on SERCOM4 PD19/PD20, LED0 PA20, LED1
   PA18, SW0 PB07, SW1 PB11), examples `blink`, `uart_echo`, `watchdog`
   (with the unique ID), `can_loopback` (internal loopback only), `dma`,
   `uart_dma` (256-byte blocks echoed by DMA, a block at a time),
-  `uart_ring` (the ring receiver, driven from the host) and `spi` (in
-  loopback on the mikroBUS pins, SERCOM2). Build with `cargo build
+  `uart_ring` (the ring receiver, driven from the host), `spi` (in
+  loopback on the mikroBUS pins, SERCOM2), and `flash` and `flash_async`
+  (scratch pages at offsets 0x7_C000 and 0x4_0000). Build with `cargo build
   --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi
   --example blink`; flash with pyOCD and the PIC32CM-SG00_DFP pack, the
   board's debugger in CMSIS-DAP mode. All pass on the board: 1,002-1,003
@@ -237,7 +240,11 @@ The plan is to publish to crates.io once these have stabilized.
   all eight channels at once, a copy dropped part way), 400 blocks echoed
   by DMA at 921,600 baud, 200,000 bytes through a 2 KiB ring at 115,200
   and at 921,600 (paced), an `Overrun` when the reader falls a ring
-  behind, and `spi`'s 22 checks, to 12 MHz by DMA.
+  behind, `spi`'s 22 checks, to 12 MHz by DMA, and `flash`'s and
+  `flash_async`'s: page erase 19.4 ms, 1 KiB row 7.9 ms, 16-byte word
+  129 µs, reads right after an erase or write (the FCR's prefetch cache
+  needs no invalidating), the CPU stalled through each as PFM is one
+  panel.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -332,7 +339,6 @@ PIC32CM PL10:
 
 PIC32CM SG00:
 
-- Flash on its FCW (a different register map from the CK's).
 - CAN on a bus (only internal loopback has run); `exti`, `rtc`, `adc` and
   `usb` (the CK's IP versions) checked on the board.
 - cortex-m 0.7 sets NVIC priorities with byte writes (only ARMv6-M gets

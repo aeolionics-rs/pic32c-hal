@@ -256,6 +256,7 @@ embassy_hal_internal::peripherals!(
     SERCOM4,
     SERCOM5,
     WDT,
+    FCW,
     // The DMAC's channels.
     DMA_CH0,
     DMA_CH1,

@@ -48,6 +48,16 @@ name = "spi"
 test = false
 bench = false
 
+[[example]]
+name = "flash"
+test = false
+bench = false
+
+[[example]]
+name = "flash_async"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 # The vector table is in program flash at 0x0C000000; boot flash holds only
@@ -64,6 +74,8 @@ can-hal = { version = "0.4.3", git = "https://github.com/aeolionics-rs/can-hal-r
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
 embedded-hal = "1.0.0"
+embedded-storage = "0.3.2"
+embedded-storage-async = "0.4.2"
 panic-halt = "1.0.0"
 static_cell = "2.1.1"
 
