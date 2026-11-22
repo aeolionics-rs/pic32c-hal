@@ -23,10 +23,10 @@ use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 
 use super::{BUFOVF, Config, ConfigError, DRE, ERROR, Error, FERR, INTENCLR, INTENSET, INTFLAG, InterruptHandler, PERR, RXC, STATUS, TXC, Uart, enable_interrupts, read8, read16, write8, write16};
+use crate::Peri;
 use crate::interrupt::typelevel::{Binding, Handler};
 use crate::mode::Async;
 use crate::sercom::{Instance, Pad};
-use crate::{Peri, gpio};
 
 /// A SERCOM's buffered state: the rings, the receive errors seen since the
 /// last read, and whether a [`BufferedUart`] owns the interrupts.
@@ -82,6 +82,9 @@ pub(crate) fn on_interrupt(base: usize, state: &super::State) {
         writer.push_one(byte);
         received = true;
     }
+    // An error with no byte (`sercom_v0` has no ERROR flag: its errors
+    // come with RXC, above).
+    #[cfg(not(sercom_v0))]
     if read8(base, INTFLAG) & ERROR != 0 {
         let status = read16(base, STATUS) & (PERR | FERR | BUFOVF);
         write16(base, STATUS, status);
@@ -173,6 +176,7 @@ impl<'d> BufferedUart<'d> {
     /// # Panics
     ///
     /// As [`new`](Self::new).
+    #[cfg(not(sercom_v0))]
     #[allow(clippy::needless_pass_by_value, reason = "the SERCOM has the pins for 'd")]
     #[allow(clippy::too_many_arguments, reason = "the SERCOM, its pins, the binding, two buffers and the configuration")]
     pub fn new_with_rtscts<T: Instance, const IOSET: u8>(
@@ -191,8 +195,8 @@ impl<'d> BufferedUart<'d> {
     {
         let _ = sercom;
         let uart = Uart::<Async>::start::<T>(&*tx, tx.function(), &*rx, rx.function(), 1, true, None, config)?;
-        gpio::set_function(&*rts, rts.function());
-        gpio::set_function(&*cts, cts.function());
+        crate::gpio::set_function(&*rts, rts.function());
+        crate::gpio::set_function(&*cts, cts.function());
         Ok(Self::start::<T>(&uart, tx_buffer, rx_buffer))
     }
 

@@ -21,6 +21,12 @@
 //! then means the TX FIFO has room, RXC that the RX FIFO has a byte, and
 //! TXC that both it and the shift register are empty. BAUD is the 16x arithmetic
 //! kind, whose steps grow at low rates (9,600 from 48 MHz is 0.14 % high).
+//!
+//! `sercom_v0` (the GV00's, the SAM D20's) has its registers at other
+//! offsets, synchronises through STATUS.SYNCBUSY, has no ERROR interrupt
+//! (errors come with the byte, in STATUS), no FIFO and no RTS/CTS, so no
+//! `*_with_rtscts` constructors; and no DMA controller, so [`BufferedUart`]
+//! is its async UART.
 
 #[cfg(dma)]
 use core::future::poll_fn;
@@ -45,13 +51,35 @@ const CTRLA: usize = 0x00;
 const CTRLB: usize = 0x04;
 #[cfg(sercom_v6)]
 const CTRLC: usize = 0x08;
+#[cfg(not(sercom_v0))]
 const BAUD: usize = 0x0C;
+#[cfg(not(sercom_v0))]
 const INTENCLR: usize = 0x14;
+#[cfg(not(sercom_v0))]
 const INTENSET: usize = 0x16;
+#[cfg(not(sercom_v0))]
 const INTFLAG: usize = 0x18;
+#[cfg(not(sercom_v0))]
 const STATUS: usize = 0x1A;
+#[cfg(not(sercom_v0))]
 const SYNCBUSY: usize = 0x1C;
+#[cfg(not(sercom_v0))]
 const DATA: usize = 0x28;
+#[cfg(sercom_v0)]
+const BAUD: usize = 0x0A;
+#[cfg(sercom_v0)]
+const INTENCLR: usize = 0x0C;
+#[cfg(sercom_v0)]
+const INTENSET: usize = 0x0D;
+#[cfg(sercom_v0)]
+const INTFLAG: usize = 0x0E;
+#[cfg(sercom_v0)]
+const STATUS: usize = 0x10;
+#[cfg(sercom_v0)]
+const DATA: usize = 0x18;
+/// STATUS.SYNCBUSY (`sercom_v0`): any write still synchronising.
+#[cfg(sercom_v0)]
+const STATUS_SYNCBUSY: u16 = 1 << 15;
 #[cfg(all(dma, sercom_v6))]
 const FIFOSPACE: usize = 0x34;
 /// FIFOSPACE.RXSPACE: bytes in the receive FIFO.
@@ -65,6 +93,7 @@ const ENABLE: u32 = 1 << 1;
 const MODE_INTERNAL: u32 = 1 << 2;
 const RXPO_SHIFT: u32 = 20;
 /// TXPO 2: TX on pad 0, RTS on pad 2, CTS on pad 3.
+#[cfg(not(sercom_v0))]
 const TXPO_RTS_CTS: u32 = 0x2 << 16;
 /// FORM 1: a frame with parity.
 const FORM_PARITY: u32 = 1 << 24;
@@ -83,10 +112,15 @@ const SYNC_CTRLB: u32 = 1 << 2;
 const DRE: u8 = 1 << 0;
 const TXC: u8 = 1 << 1;
 const RXC: u8 = 1 << 2;
+/// INTFLAG.ERROR; `sercom_v0` has none (errors come with RXC).
+#[cfg(not(sercom_v0))]
 const ERROR: u8 = 1 << 7;
+#[cfg(sercom_v0)]
+const ERROR: u8 = 0;
 const PERR: u16 = 1 << 0;
 const FERR: u16 = 1 << 1;
 const BUFOVF: u16 = 1 << 2;
+#[cfg(not(sercom_v0))]
 const CTS: u16 = 1 << 3;
 
 /// RX goes on pad 1, 2 or 3 (TX has pad 0).
@@ -127,7 +161,7 @@ pub struct Config {
     /// FIFO would take one stale byte from the FIFO's memory first (seen on
     /// the bench), so a [`Uart`] with DMA starts each read's transfer only
     /// once a byte is in. `sercom_v6` only (the PIC32CK); off by default,
-    /// and refused, on `sercom_v1`.
+    /// and refused, on `sercom_v1` and `sercom_v0`.
     pub fifo: bool,
     /// The RX pin's pull (embassy-stm32's `rx_pull`), for a line that may
     /// be left unconnected. None by default. The PIC32CK's PORT disables
@@ -144,7 +178,7 @@ impl Default for Config {
             baudrate: 115_200,
             parity: Parity::None,
             stop_bits: StopBits::One,
-            generator: if cfg!(sercom_v1) { 0 } else { 3 },
+            generator: if cfg!(any(sercom_v1, sercom_v0)) { 0 } else { 3 },
             fifo: cfg!(sercom_v6),
             rx_pull: crate::gpio::Pull::None,
         }
@@ -160,7 +194,7 @@ pub enum ConfigError {
     ClockTooFast,
     /// The generator is slower than 16 times the baud rate.
     BaudTooHigh,
-    /// [`Config::fifo`] on a SERCOM without one (`sercom_v1`).
+    /// [`Config::fifo`] on a SERCOM without one (`sercom_v1`, `sercom_v0`).
     NoFifo,
 }
 
@@ -217,7 +251,7 @@ fn baud_value(clock_hz: u32, baudrate: u32) -> Result<u16, ConfigError> {
 fn validate(config: &Config) -> Result<(u32, u16), ConfigError> {
     let clock_hz = crate::clocks::generator_hz(config.generator).ok_or(ConfigError::NoClock)?;
     let baud = baud_value(clock_hz, config.baudrate)?;
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     if config.fifo {
         return Err(ConfigError::NoFifo);
     }
@@ -276,19 +310,19 @@ impl State {
         crate::clocks::enable_channel(self.gclk_channel, config.generator);
         let old = read32(base, CTRLA);
         write32(base, CTRLA, old & !ENABLE);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(base, SYNC_ENABLE);
         let form = if config.parity == Parity::None { 0 } else { FORM_PARITY };
         let ctrla = DORD_LSB | form | (old & CTRLA_PADS) | MODE_INTERNAL;
         write32(base, CTRLA, ctrla);
         let sbmode = if config.stop_bits == StopBits::Two { SBMODE_TWO } else { 0 };
         let pmode = if config.parity == Parity::Odd { PMODE_ODD } else { 0 };
         write32(base, CTRLB, RXEN | TXEN | pmode | sbmode);
-        while read32(base, SYNCBUSY) & SYNC_CTRLB != 0 {}
+        wait_sync(base, SYNC_CTRLB);
         #[cfg(sercom_v6)]
         write32(base, CTRLC, if config.fifo { FIFOEN } else { 0 });
         write16(base, BAUD, baud);
         write32(base, CTRLA, ctrla | ENABLE);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(base, SYNC_ENABLE);
         self.clock_hz.store(clock_hz, Ordering::Relaxed);
         let rx_pin = self.rx_pin.load(Ordering::Relaxed);
         if let Ok(rx_pin) = u8::try_from(rx_pin) {
@@ -309,10 +343,10 @@ impl State {
         let baud = baud_value(self.clock_hz.load(Ordering::Relaxed), baudrate)?;
         let ctrla = read32(base, CTRLA);
         write32(base, CTRLA, ctrla & !ENABLE);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(base, SYNC_ENABLE);
         write16(base, BAUD, baud);
         write32(base, CTRLA, ctrla);
-        while read32(base, SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait_sync(base, SYNC_ENABLE);
         Ok(())
     }
 }
@@ -323,8 +357,9 @@ pub(crate) trait SealedInstance {
     /// `n`, of `SERCOMn`: which DMA requests are its.
     #[cfg_attr(not(dma), allow(dead_code, reason = "for DMA requests"))]
     const NUMBER: u8;
-    /// Its bus clock's bit in MCLK.APBCMASK (`sercom_v1`: off at reset).
-    #[cfg(sercom_v1)]
+    /// Its bus clock's bit in MCLK.APBCMASK (`sercom_v1`; PM.APBCMASK on
+    /// `sercom_v0`: off at reset).
+    #[cfg(any(sercom_v1, sercom_v0))]
     const APBC: u32;
     fn state() -> &'static State;
 }
@@ -368,7 +403,7 @@ macro_rules! impl_sercom {
             $crate::uart::impl_sercom!(@handler $sercom, $error);
         )*
     };
-    // `sercom_v1`: one vector for all four.
+    // `sercom_v1` and `sercom_v0`: one vector for all four.
     ($($sercom:ident = $base:literal, number $number:literal, channel $channel:literal, apbc $apbc:literal, $line:ident;)*) => {
         $(
             impl $crate::uart::SealedInstance for $crate::peripherals::$sercom {
@@ -426,11 +461,12 @@ fn write32(base: usize, offset: usize, value: u32) {
     unsafe { write_volatile(reg32(base, offset), value) }
 }
 
-/// DATA, read: 32 bits wide on `sercom_v6`, 16 on `sercom_v1`.
+/// DATA, read: 32 bits wide on `sercom_v6`, 16 on `sercom_v1` and
+/// `sercom_v0`.
 fn read_data(base: usize) -> u32 {
     #[cfg(sercom_v6)]
     return read32(base, DATA);
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     return u32::from(read16(base, DATA));
 }
 
@@ -438,9 +474,21 @@ fn read_data(base: usize) -> u32 {
 fn write_data(base: usize, value: u32) {
     #[cfg(sercom_v6)]
     write32(base, DATA, value);
-    #[cfg(sercom_v1)]
+    #[cfg(any(sercom_v1, sercom_v0))]
     #[expect(clippy::cast_possible_truncation, reason = "nine data bits at most")]
     write16(base, DATA, value as u16);
+}
+
+/// Waits for the writes in `mask` (SYNCBUSY's bits) to synchronise; on
+/// `sercom_v0`, for any write (STATUS.SYNCBUSY).
+fn wait_sync(base: usize, mask: u32) {
+    #[cfg(not(sercom_v0))]
+    while read32(base, SYNCBUSY) & mask != 0 {}
+    #[cfg(sercom_v0)]
+    {
+        let _ = mask;
+        while read16(base, STATUS) & STATUS_SYNCBUSY != 0 {}
+    }
 }
 
 fn read16(base: usize, offset: usize) -> u16 {
@@ -522,6 +570,7 @@ pub struct UartRx<'d, M> {
     _lifetime: PhantomData<(&'d (), M)>,
 }
 
+#[cfg(not(sercom_v0))]
 impl<M> UartTx<'_, M> {
     /// Whether the far end lets this one send: CTS low. Only a UART with
     /// flow control ([`Uart::new_with_rtscts`]) waits on it; on one without,
@@ -553,6 +602,7 @@ impl<'d> Uart<'d, Blocking> {
     /// # Errors
     ///
     /// As [`new_blocking`](Self::new_blocking).
+    #[cfg(not(sercom_v0))]
     #[allow(clippy::needless_pass_by_value, reason = "the SERCOM has the pins for 'd")]
     pub fn new_blocking_with_rtscts<T: Instance, const IOSET: u8>(
         sercom: Peri<'d, T>,
@@ -695,13 +745,19 @@ impl<'d, M> Uart<'d, M> {
         // Nothing is touched if `config` can't be met.
         validate(&config)?;
         let base = T::BASE;
-        #[cfg(sercom_v1)]
+        #[cfg(any(sercom_v1, sercom_v0))]
         crate::clocks::enable_apbc(T::APBC);
         let state = T::state();
         // The reset synchronises on the core clock, so that first.
         crate::clocks::enable_channel(state.gclk_channel, config.generator);
         crate::sercom::reset(base);
+        #[cfg(not(sercom_v0))]
         let txpo = if rtscts { TXPO_RTS_CTS } else { 0 };
+        #[cfg(sercom_v0)]
+        let txpo = {
+            debug_assert!(!rtscts, "sercom_v0 has no RTS/CTS");
+            0
+        };
         write32(base, CTRLA, txpo | (u32::from(rx_pad) << RXPO_SHIFT));
         state.rx_pin.store(NO_PIN, Ordering::Relaxed);
         state.configure(base, &config)?;

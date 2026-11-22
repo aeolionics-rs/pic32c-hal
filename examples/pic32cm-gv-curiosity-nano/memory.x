@@ -1,0 +1,7 @@
+/* PIC32CM3204GV00064, from the PIC32CM-GV_DFP pack's ATDF: 32 KB of flash
+ * at 0, 4 KB of SRAM. */
+MEMORY
+{
+  FLASH : ORIGIN = 0x00000000, LENGTH = 32K
+  RAM   : ORIGIN = 0x20000000, LENGTH = 4K
+}

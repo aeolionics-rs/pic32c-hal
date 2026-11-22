@@ -1270,6 +1270,7 @@ dependencies = [
  "embedded-storage-async",
  "pic32ck-gc01-pac",
  "pic32ck-sg01-pac",
+ "pic32cm-gv00-pac",
  "pic32cm-pl10-pac",
  "pic32cm-sg00-pac",
  "portable-atomic",
@@ -1339,6 +1340,30 @@ dependencies = [
 
 [[package]]
 name = "pic32ck-sg01-pac"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "vcell",
+]
+
+[[package]]
+name = "pic32cm-gv-curiosity-nano"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "critical-section",
+ "embassy-executor",
+ "embassy-time",
+ "panic-halt",
+ "pic32c-hal",
+ "static_cell",
+]
+
+[[package]]
+name = "pic32cm-gv00-pac"
 version = "0.1.0"
 dependencies = [
  "cortex-m",

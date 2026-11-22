@@ -61,11 +61,8 @@ pub(crate) use impl_pads;
 /// reset synchronises on it.
 pub(crate) fn reset(base: usize) {
     const CTRLA: usize = 0x00;
-    const SYNCBUSY: usize = 0x1C;
     const SWRST: u32 = 1 << 0;
     const ENABLE: u32 = 1 << 1;
-    const SYNC_SWRST: u32 = 1 << 0;
-    const SYNC_ENABLE: u32 = 1 << 1;
     let read = |offset: usize| {
         // SAFETY: a register of the SERCOM at `base`, read whole.
         unsafe { core::ptr::read_volatile((base + offset) as *const u32) }
@@ -74,11 +71,26 @@ pub(crate) fn reset(base: usize) {
         // SAFETY: as above; the driver calling owns the SERCOM.
         unsafe { core::ptr::write_volatile((base + offset) as *mut u32, value) }
     };
+    // Waits for the writes in `mask` (SYNCBUSY's) to synchronise; on
+    // `sercom_v0`, for STATUS.SYNCBUSY, which covers any.
+    let wait = |mask: u32| {
+        #[cfg(not(sercom_v0))]
+        while read(0x1C) & mask != 0 {}
+        #[cfg(sercom_v0)]
+        {
+            let _ = mask;
+            // SAFETY: STATUS, a halfword register of the SERCOM at `base`.
+            while unsafe { core::ptr::read_volatile((base + 0x10) as *const u16) } & (1 << 15) != 0 {}
+        }
+    };
     let ctrla = read(CTRLA);
     if ctrla & ENABLE != 0 {
         write(CTRLA, ctrla & !ENABLE);
-        while read(SYNCBUSY) & SYNC_ENABLE != 0 {}
+        wait(ENABLE);
     }
     write(CTRLA, SWRST);
-    while read(SYNCBUSY) & SYNC_SWRST != 0 {}
+    wait(SWRST);
+    // `sercom_v0` also shows the reset in CTRLA.SWRST until it's done.
+    #[cfg(sercom_v0)]
+    while read(CTRLA) & SWRST != 0 {}
 }

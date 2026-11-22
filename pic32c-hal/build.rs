@@ -26,6 +26,13 @@
 //!   `fcw_v2` (FCW 04971: NVMOP in its own register, 16-byte quad writes,
 //!   one panel); the other modules whose IP it shares wait to be checked
 //!   on it.
+//! - `pic32cm_gv`: the PIC32CM GV00 (Cortex-M0+), a generation older than
+//!   the others: the SAM D20's IP. `sercom_v0` (no FIFO, 16-bit DATA, one
+//!   interrupt line per SERCOM, bus clocks off at reset, the registers at
+//!   other offsets, synchronisation in STATUS.SYNCBUSY, no RTS/CTS) and
+//!   `port_v0` (`port_v1` with drive strength in place of slew control). Its
+//!   clocks (SYSCTRL, PM, and a GCLK programmed through ID fields), TC and
+//!   the rest are its own; it has no DMA controller.
 //!
 //! `dma` is set with either DMA IP: the drivers that take DMA channels
 //! (`uart`, `spi`) need only that.
@@ -33,7 +40,7 @@
 //! With feature `time-driver`, it also sets `time_driver` to the counter the
 //! time driver takes: the one a `time-driver-*` feature names, else the
 //! chip's usual one (`tcc0` on the PIC32CK and the SG00, `tc0_tc1` on the
-//! PL10).
+//! PL10 and the GV00).
 
 use std::env;
 
@@ -41,10 +48,13 @@ const ALL: &[&str] = &[
     "pic32ck",
     "pic32cm_pl",
     "pic32cm_sg",
+    "pic32cm_gv",
     "sercom_v6",
     "sercom_v1",
+    "sercom_v0",
     "port_v4",
     "port_v1",
+    "port_v0",
     "dma",
     "dma_axi",
     "dma_u2223",
@@ -70,6 +80,9 @@ const ALL: &[&str] = &[
 /// usual one; each is feature `time-driver-<name>` with `_` as `-`.
 const PIC32CK_TIMERS: &[&str] = &["tcc0", "tcc1", "tcc2", "tcc3", "tcc4", "tcc5", "tcc6", "tcc7"];
 const PIC32CM_PL_TIMERS: &[&str] = &["tc0_tc1", "tc0", "tc1", "tc2"];
+/// The GV00's: TC0 and TC1 paired, or TC0, TC1 or TC2 alone (the PL10's
+/// names; TC3 to TC7 aren't offered yet).
+const PIC32CM_GV_TIMERS: &[&str] = &["tc0_tc1", "tc0", "tc1", "tc2"];
 const PIC32CM_SG_TIMERS: &[&str] = &["tcc0", "tcc1", "tcc2", "tcc3", "tcc4", "tcc5", "tcc6"];
 
 const PIC32CK: &[&str] = &[
@@ -96,6 +109,8 @@ const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 
+const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0"];
+
 fn main() {
     for cfg in ALL {
         println!("cargo::rustc-check-cfg=cfg({cfg})");
@@ -109,6 +124,8 @@ fn main() {
         (PIC32CM_PL, PIC32CM_PL_TIMERS)
     } else if feature("pic32cm5112sg00100") {
         (PIC32CM_SG, PIC32CM_SG_TIMERS)
+    } else if feature("pic32cm3204gv00064") {
+        (PIC32CM_GV, PIC32CM_GV_TIMERS)
     } else {
         (&[], &[])
     };

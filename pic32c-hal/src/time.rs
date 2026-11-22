@@ -12,6 +12,8 @@
 //! | `time-driver-tcc4` to `-tcc7` | PIC32CK | TCC4 to TCC7, 16 bits |
 //! | `time-driver-tc0-tc1` (`time-driver`'s choice) | PIC32CM PL10 | TC0 and TC1 paired, 32 bits |
 //! | `time-driver-tc0`, `-tc1`, `-tc2` | PIC32CM PL10 | one TC, 16 bits |
+//! | `time-driver-tc0-tc1` (`time-driver`'s choice) | PIC32CM GV00 | TC0 and TC1 paired, 32 bits |
+//! | `time-driver-tc0`, `-tc1`, `-tc2` | PIC32CM GV00 | one TC, 16 bits |
 //! | `time-driver-tcc0` (`time-driver`'s choice) to `-tcc6` | PIC32CM SG00 | TCC0 to TCC6, 16 bits |
 //!
 //! The PIC32CK has no basic TC, and the PL10's TCC0 is only 16 bits. The
@@ -396,6 +398,186 @@ mod hw {
     pub(super) fn set_cc1(value: u32) {
         write_counter(CC1, value);
         wait_sync(SYNC_CC1);
+    }
+
+    pub(super) fn flags() -> u32 {
+        u32::from(read8(INTFLAG))
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "the flags are in the low byte")]
+    pub(super) fn clear(mask: u32) {
+        write8(INTFLAG, mask as u8);
+    }
+
+    pub(super) fn enabled() -> u32 {
+        u32::from(read8(INTENSET))
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "the flags are in the low byte")]
+    pub(super) fn enable_interrupts(mask: u32) {
+        write8(INTENSET, mask as u8);
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "the flags are in the low byte")]
+    pub(super) fn disable_interrupts(mask: u32) {
+        write8(INTENCLR, mask as u8);
+    }
+}
+
+#[cfg(pic32cm_gv)]
+mod hw {
+    //! A TC on the PIC32CM GV00 (the SAM D20's TC, DS60001881 chapter 25):
+    //! TC0 and TC1 paired as one 32-bit counter (COUNT32, configured
+    //! through TC0, the even one), or one TC as 16 bits (COUNT16). Normal
+    //! frequency generation, so TOP is the counter's maximum. Unlike the
+    //! PL10's, its writes synchronise through STATUS.SYNCBUSY, and a read of
+    //! COUNT must be asked for (READREQ) first.
+    use core::ptr::{read_volatile, write_volatile};
+
+    use critical_section::CriticalSection;
+
+    use crate::interrupt::{Interrupt, InterruptExt};
+
+    /// The chosen TC: its base address, GCLK channel (a CLKCTRL.ID), bus
+    /// clocks (PM.APBCMASK), counter width and vector.
+    macro_rules! timer {
+        ($base:literal, $channel:literal, $apbc:expr, $bits:literal, $irq:ident) => {
+            const BASE: usize = $base;
+            const GCLK_CHANNEL: usize = $channel;
+            const APBC: u32 = $apbc;
+            pub(super) const BITS: u32 = $bits;
+
+            /// Unmasks the timer's vector in the NVIC.
+            pub(super) fn unmask() {
+                Interrupt::$irq.unpend();
+                // SAFETY: the vector below only runs the driver's handler.
+                unsafe { Interrupt::$irq.enable() };
+            }
+
+            #[cfg(feature = "rt")]
+            #[allow(non_snake_case)]
+            #[unsafe(no_mangle)]
+            unsafe extern "C" fn $irq() {
+                super::on_interrupt();
+            }
+        };
+    }
+
+    // TC0 and TC1 share GCLK_TC0_TC1 (0x13); TC2 has GCLK_TC2_TC3 (0x14).
+    // Their bus clocks are PM.APBCMASK bits 8 on.
+    #[cfg(time_driver = "tc0_tc1")]
+    timer!(0x4200_2000, 0x13, (1 << 8) | (1 << 9), 32, TC0);
+    #[cfg(time_driver = "tc0")]
+    timer!(0x4200_2000, 0x13, 1 << 8, 16, TC0);
+    #[cfg(time_driver = "tc1")]
+    timer!(0x4200_2400, 0x13, 1 << 9, 16, TC1);
+    #[cfg(time_driver = "tc2")]
+    timer!(0x4200_2800, 0x14, 1 << 10, 16, TC2);
+
+    const CTRLA: usize = BASE;
+    const READREQ: usize = BASE + 0x02;
+    const INTENCLR: usize = BASE + 0x0C;
+    const INTENSET: usize = BASE + 0x0D;
+    const INTFLAG: usize = BASE + 0x0E;
+    const STATUS: usize = BASE + 0x0F;
+    /// COUNT, then CC0 and CC1, each as wide as the counter.
+    const COUNT: usize = BASE + 0x10;
+    const CC0: usize = BASE + 0x18;
+    const CC1: usize = CC0 + BITS as usize / 8;
+
+    const CTRLA_SWRST: u16 = 1 << 0;
+    /// CTRLA.SWRST, in CTRLA's low byte.
+    const CTRLA_SWRST_BYTE: u8 = 1 << 0;
+    const CTRLA_ENABLE: u16 = 1 << 1;
+    /// CTRLA.MODE: COUNT32 (pairing TC1 with TC0) or COUNT16.
+    const CTRLA_MODE: u16 = if BITS == 32 { 2 << 2 } else { 0 };
+    const CTRLA_PRESCALER_SHIFT: u32 = 8;
+    /// READREQ.RREQ, with ADDR at COUNT's offset.
+    const RREQ_COUNT: u16 = (1 << 15) | 0x10;
+    const SYNCBUSY: u8 = 1 << 7;
+
+    pub(super) const OVF: u32 = 1 << 0;
+    pub(super) const MC0: u32 = 1 << 4;
+    pub(super) const MC1: u32 = 1 << 5;
+
+    fn read8(address: usize) -> u8 {
+        // SAFETY: a byte register of the driver's TC.
+        unsafe { read_volatile(address as *const u8) }
+    }
+
+    fn write8(address: usize, value: u8) {
+        // SAFETY: a byte register of the driver's TC; only this driver uses it.
+        unsafe { write_volatile(address as *mut u8, value) }
+    }
+
+    fn write16(address: usize, value: u16) {
+        // SAFETY: a halfword register of the driver's TC; only this driver
+        // uses it.
+        unsafe { write_volatile(address as *mut u16, value) }
+    }
+
+    /// COUNT or a CC, at the counter's width: in 16-bit mode CC0 and CC1
+    /// are neighbouring halfwords, so a word write would reach both.
+    fn read_counter(address: usize) -> u32 {
+        // SAFETY: a register of the driver's TC, at its width.
+        unsafe { if BITS == 32 { read_volatile(address as *const u32) } else { u32::from(read_volatile(address as *const u16)) } }
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "a 16-bit counter's value is in the low half")]
+    fn write_counter(address: usize, value: u32) {
+        if BITS == 32 {
+            // SAFETY: a word register of the driver's TC; only this driver
+            // uses it.
+            unsafe { write_volatile(address as *mut u32, value) }
+        } else {
+            write16(address, value as u16);
+        }
+    }
+
+    fn wait_sync() {
+        while read8(STATUS) & SYNCBUSY != 0 {}
+    }
+
+    #[expect(clippy::cast_possible_truncation, reason = "PRESCALER is three bits")]
+    const fn ctrla(prescaler: u32) -> u16 {
+        CTRLA_MODE | ((prescaler as u16) << CTRLA_PRESCALER_SHIFT)
+    }
+
+    /// Resets the counter from `generator` through `prescaler`, at `count`,
+    /// CC0 at `half`; not yet enabled. TOP is fixed at the maximum, which
+    /// `top` must be.
+    pub(super) fn setup(generator: usize, prescaler: u32, top: u32, count: u32, half: u32) {
+        debug_assert_eq!(top, super::MASK);
+        crate::clocks::enable_apbc(APBC);
+        crate::clocks::enable_channel(GCLK_CHANNEL, generator);
+        write16(CTRLA, CTRLA_SWRST);
+        wait_sync();
+        while read8(CTRLA) & CTRLA_SWRST_BYTE != 0 {}
+        write16(CTRLA, ctrla(prescaler));
+        wait_sync();
+        write_counter(CC0, half);
+        wait_sync();
+        write_counter(COUNT, count);
+        wait_sync();
+    }
+
+    pub(super) fn enable(prescaler: u32) {
+        write16(CTRLA, ctrla(prescaler) | CTRLA_ENABLE);
+        wait_sync();
+    }
+
+    /// The counter, synchronised for reading: a read request for COUNT,
+    /// then wait for it. Call inside a critical section, so one read's
+    /// request doesn't overlap another's.
+    pub(super) fn read_count(_cs: CriticalSection) -> u32 {
+        write16(READREQ, RREQ_COUNT);
+        wait_sync();
+        read_counter(COUNT)
+    }
+
+    pub(super) fn set_cc1(value: u32) {
+        write_counter(CC1, value);
+        wait_sync();
     }
 
     pub(super) fn flags() -> u32 {

@@ -26,9 +26,11 @@ jobs:
       - run: rustup toolchain install
       - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
       - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
-      # The CM chips' own drivers (their DMAC, flash controllers, watchdog).
+      # The CM chips' own drivers (their DMAC, flash controllers, watchdog,
+      # the GV00's clocks).
       - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
       - run: cargo test -p pic32c-hal --features pic32cm6408pl10048 --lib
+      - run: cargo test -p pic32c-hal --features pic32cm3204gv00064 --lib
 
   # The HAL for each chip, every feature that chip has.
   chip:
@@ -50,6 +52,9 @@ jobs:
           - chip: pic32cm5112sg00100
             target: thumbv8m.base-none-eabi
             features: can-hal,exti,time-driver,usb
+          - chip: pic32cm3204gv00064
+            target: thumbv6m-none-eabi
+            features: time-driver
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
@@ -77,6 +82,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
       - run: cargo clippy --release -p pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
+
+  gv-board:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - run: cargo clippy --release -p pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
 
   sg00-board:
     runs-on: ubuntu-latest

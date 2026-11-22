@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Drivers for Microchip's PIC32C microcontrollers, so far the PIC32CK SG
-//! and GC (DS60001795) and, in part, the PIC32CM PL10 (DS40002667: clocks,
-//! GPIO, the UART and the time driver), in Embassy's style. As in
+//! and GC (DS60001795), the PIC32CM SG00 (DS60001921) and PL10
+//! (DS40002667) and, in part, the PIC32CM GV00 (DS60001881: clocks, GPIO,
+//! the UART, the unique ID and the time driver), in Embassy's style. As in
 //! embassy-stm32, `build.rs` turns the chip feature into cfgs naming its
 //! peripherals' IP versions (`sercom_v6`, `sercom_v1`, `port_v4`, ...), and
 //! the drivers and modules follow those, not the chip:
@@ -43,8 +44,9 @@
 //!   USB controller.
 //!
 //! Choose the chip with one feature: `pic32ck2051sg01144` or
-//! `pic32ck2051gc01144`, each with its own PAC (the GC's lacks the Secure
-//! views of PORT and the EIC, and the HSM). Feature `rt`
+//! `pic32ck2051gc01144` (the GC's PAC lacks the Secure views of PORT and the
+//! EIC, and the HSM), `pic32cm5112sg00100`, `pic32cm6408pl10048` or
+//! `pic32cm3204gv00064`, each with its own PAC. Feature `rt`
 //! brings in the PAC's vector table and lets the HAL define the time
 //! driver's handlers. [`init`] sets the [`clocks`] up from its [`Config`],
 //! and the drivers' rates follow from it.
@@ -56,19 +58,21 @@
 
 #![cfg_attr(not(test), no_std)]
 
-#[cfg(not(any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100")))]
-compile_error!("choose the chip: feature `pic32ck2051sg01144`, `pic32ck2051gc01144`, `pic32cm6408pl10048` or `pic32cm5112sg00100`");
+#[cfg(not(any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100", feature = "pic32cm3204gv00064")))]
+compile_error!("choose the chip: feature `pic32ck2051sg01144`, `pic32ck2051gc01144`, `pic32cm6408pl10048`, `pic32cm5112sg00100` or `pic32cm3204gv00064`");
 #[cfg(any(
     all(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144"),
     all(feature = "pic32ck2051sg01144", feature = "pic32cm6408pl10048"),
     all(feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048"),
-    all(feature = "pic32cm5112sg00100", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048"))
+    all(feature = "pic32cm5112sg00100", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048")),
+    all(feature = "pic32cm3204gv00064", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100"))
 ))]
 compile_error!("choose one chip");
 
 #[cfg_attr(pic32ck, path = "chip/pic32ck2051_144.rs")]
 #[cfg_attr(pic32cm_pl, path = "chip/pic32cm6408pl10048.rs")]
 #[cfg_attr(pic32cm_sg, path = "chip/pic32cm5112sg00100.rs")]
+#[cfg_attr(pic32cm_gv, path = "chip/pic32cm3204gv00064.rs")]
 #[allow(clippy::missing_safety_doc, clippy::expl_impl_clone_on_copy, reason = "in code embassy-hal-internal's macros generate")]
 mod chip;
 
@@ -82,6 +86,7 @@ pub mod cache;
 pub mod can;
 #[cfg_attr(any(pic32ck, pic32cm_sg), path = "clocks.rs")]
 #[cfg_attr(pic32cm_pl, path = "clocks_pl.rs")]
+#[cfg_attr(pic32cm_gv, path = "clocks_gv.rs")]
 pub mod clocks;
 #[cfg_attr(dma_axi, path = "dma.rs")]
 #[cfg_attr(dma_u2223, path = "dma_u2223.rs")]
@@ -204,7 +209,7 @@ impl Config {
             #[cfg(cmcc)]
             cache: true,
             #[cfg(feature = "time-driver")]
-            time: time::Config::new(if cfg!(pic32cm_pl) { 1 } else { 4 }),
+            time: time::Config::new(if cfg!(any(pic32cm_pl, pic32cm_gv)) { 1 } else { 4 }),
         }
     }
 }
@@ -246,6 +251,17 @@ impl Default for Config {
             config.time = time::Config::new(1);
         }
         config
+    }
+}
+
+#[cfg(pic32cm_gv)]
+impl Default for Config {
+    /// The clocks as they come out of reset but with OSC8M undivided: 8 MHz
+    /// on generator 0 for the CPU, and generator 1 at 1 MHz (OSC8M / 8) for
+    /// the time driver. No crystal needed, but OSC8M is only as good as its
+    /// factory calibration.
+    fn default() -> Self {
+        Self::new(clocks::Config::osc8m())
     }
 }
 

@@ -38,12 +38,16 @@ const INEN: u8 = 1 << 1;
 const PULLEN: u8 = 1 << 2;
 #[cfg(port_v4)]
 const ODRAIN: u8 = 1 << 3;
+#[cfg(not(port_v0))]
 const SLEWLIM_SHIFT: u8 = 4;
-/// SLEWLIM's width: two bits on `port_v4`, one (on or off) on `port_v1`.
+/// SLEWLIM's width: two bits on `port_v4`, one (on or off) on `port_v1`;
+/// `port_v0` has none, but DRVSTR.
 #[cfg(port_v4)]
 const SLEWLIM_MASK: u8 = 0b11;
 #[cfg(port_v1)]
 const SLEWLIM_MASK: u8 = 0b1;
+#[cfg(port_v0)]
+const DRVSTR: u8 = 1 << 6;
 
 /// A pin's level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,7 +77,9 @@ pub enum Pull {
 }
 
 /// An output's slew rate (PINCFG.SLEWLIM). Not every pin has slew control
-/// (table 34-23); I²C pins must stay [`Slew::Fast`].
+/// (table 34-23); I²C pins must stay [`Slew::Fast`]. Not on `port_v0` (the
+/// GV00), which has [`DriveStrength`] instead.
+#[cfg(not(port_v0))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slew {
     Fast,
@@ -83,6 +89,16 @@ pub enum Slew {
     Slow8,
     /// 12x slower.
     Slow12,
+}
+
+/// An output's drive strength (PINCFG.DRVSTR, `port_v0`: the GV00).
+#[cfg(port_v0)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriveStrength {
+    /// The reset value.
+    Normal,
+    /// More current, for a heavier load.
+    Strong,
 }
 
 /// A peripheral function (PMUX), A to N.
@@ -262,8 +278,17 @@ impl<'d> Flex<'d> {
     }
 
     /// The pin's slew rate, as an output.
+    #[cfg(not(port_v0))]
     pub fn set_slew(&mut self, slew: Slew) {
         set_slew(&*self.pin, slew);
+    }
+
+    /// The pin's drive strength, as an output, keeping its other settings.
+    #[cfg(port_v0)]
+    pub fn set_drive_strength(&mut self, strength: DriveStrength) {
+        let address = self.pin.pincfg();
+        let pincfg = read8(address) & !DRVSTR;
+        write8(address, if strength == DriveStrength::Strong { pincfg | DRVSTR } else { pincfg });
     }
 
     /// Handed to peripheral function `function`.
@@ -390,6 +415,7 @@ pub(crate) fn set_function_pull(pin: &impl SealedPin, pull: Pull) {
 
 /// Sets `pin`'s slew limit (PINCFG.SLEWLIM), keeping its other settings:
 /// for drivers whose pins are a peripheral's.
+#[cfg(not(port_v0))]
 pub(crate) fn set_slew(pin: &impl SealedPin, slew: Slew) {
     let address = pin.pincfg();
     // `port_v1` has only on or off: any slower setting is on.
@@ -470,8 +496,15 @@ impl<'d> Output<'d> {
     }
 
     /// The pin's slew rate.
+    #[cfg(not(port_v0))]
     pub fn set_slew(&mut self, slew: Slew) {
         self.pin.set_slew(slew);
+    }
+
+    /// The pin's drive strength.
+    #[cfg(port_v0)]
+    pub fn set_drive_strength(&mut self, strength: DriveStrength) {
+        self.pin.set_drive_strength(strength);
     }
 }
 

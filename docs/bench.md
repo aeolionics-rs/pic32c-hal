@@ -12,11 +12,12 @@ its example is being tested.
 | PIC32CK SG01 Curiosity Ultra (EV33A17A) | The main CK board: TrustZone (the `PORT_SEC` view), the HSM; `uart_peer`, the far end for the UART examples. |
 | PIC32CK GC01 Curiosity Ultra (EV44P93A) | The CK without TrustZone; the far end for `can_ping`/`can_echo`. |
 | PIC32CM PL10 Curiosity Nano (EV10P22A) | The PL10 examples. |
+| PIC32CM GV-Value Line Curiosity Nano+ Touch (EV80D90A) | The GV00 examples. Its target supply must be 3.3 V: the user guide gives a 5.0 V factory default, over the GV00's 3.63 V (`pymcuprog getvoltage` reads it). |
 
 # Connections
 
 - **USB to the host:** each Curiosity Ultra's PKoB4 debug port (flashing
-  and the VCOM log), the PL10's nEDBG. A CK board's J203 only
+  and the VCOM log), the PL10's and the GV's nEDBG. A CK board's J203 only
   while running `usb_echo`, and the SG01's J202 (USB-C, high speed) while
   running `usbhs_echo`, by an A-to-C or a C-to-C cable: the CC switches'
   control (USB0_DRD, PA12) is pulled low, which leaves 5.1k on CC, so a
@@ -58,7 +59,8 @@ its example is being tested.
 # Flashing
 
 - Both families with pyOCD and Microchip's packs (`Microchip.PIC32CK-SG_DFP`
-  and `-GC_DFP`, `Microchip.PIC32CM-PL_DFP`); the PL10 at 100 kHz.
+  and `-GC_DFP`, `Microchip.PIC32CM-PL_DFP`, `Microchip.PIC32CM-GV_DFP`);
+  the PL10 at 100 kHz.
 - Never probe-rs to flash or reset the PL10: it can't reset this family,
   and older versions wedge the nEDBG.
 - On the CK boards, erase the first boot-flash sector before loading, and

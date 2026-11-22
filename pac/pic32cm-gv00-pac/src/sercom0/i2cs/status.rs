@@ -1,0 +1,133 @@
+#[doc = "Register `STATUS` reader"]
+pub type R = crate::R<StatusSpec>;
+#[doc = "Register `STATUS` writer"]
+pub type W = crate::W<StatusSpec>;
+#[doc = "Field `BUSERR` reader - Bus Error"]
+pub type BuserrR = crate::BitReader;
+#[doc = "Field `BUSERR` writer - Bus Error"]
+pub type BuserrW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `COLL` reader - Transmit Collision"]
+pub type CollR = crate::BitReader;
+#[doc = "Field `COLL` writer - Transmit Collision"]
+pub type CollW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `RXNACK` reader - Received Not Acknowledge"]
+pub type RxnackR = crate::BitReader;
+#[doc = "Field `RXNACK` writer - Received Not Acknowledge"]
+pub type RxnackW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `DIR` reader - Read / Write Direction"]
+pub type DirR = crate::BitReader;
+#[doc = "Field `DIR` writer - Read / Write Direction"]
+pub type DirW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `SR` reader - Repeated Start"]
+pub type SrR = crate::BitReader;
+#[doc = "Field `SR` writer - Repeated Start"]
+pub type SrW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `LOWTOUT` reader - SCL Low Time-out"]
+pub type LowtoutR = crate::BitReader;
+#[doc = "Field `LOWTOUT` writer - SCL Low Time-out"]
+pub type LowtoutW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `CLKHOLD` reader - Clock Hold"]
+pub type ClkholdR = crate::BitReader;
+#[doc = "Field `CLKHOLD` writer - Clock Hold"]
+pub type ClkholdW<'a, REG> = crate::BitWriter<'a, REG>;
+#[doc = "Field `SYNCBUSY` reader - Synchronization Busy"]
+pub type SyncbusyR = crate::BitReader;
+#[doc = "Field `SYNCBUSY` writer - Synchronization Busy"]
+pub type SyncbusyW<'a, REG> = crate::BitWriter<'a, REG>;
+impl R {
+    #[doc = "Bit 0 - Bus Error"]
+    #[inline(always)]
+    pub fn buserr(&self) -> BuserrR {
+        BuserrR::new((self.bits & 1) != 0)
+    }
+    #[doc = "Bit 1 - Transmit Collision"]
+    #[inline(always)]
+    pub fn coll(&self) -> CollR {
+        CollR::new(((self.bits >> 1) & 1) != 0)
+    }
+    #[doc = "Bit 2 - Received Not Acknowledge"]
+    #[inline(always)]
+    pub fn rxnack(&self) -> RxnackR {
+        RxnackR::new(((self.bits >> 2) & 1) != 0)
+    }
+    #[doc = "Bit 3 - Read / Write Direction"]
+    #[inline(always)]
+    pub fn dir(&self) -> DirR {
+        DirR::new(((self.bits >> 3) & 1) != 0)
+    }
+    #[doc = "Bit 4 - Repeated Start"]
+    #[inline(always)]
+    pub fn sr(&self) -> SrR {
+        SrR::new(((self.bits >> 4) & 1) != 0)
+    }
+    #[doc = "Bit 6 - SCL Low Time-out"]
+    #[inline(always)]
+    pub fn lowtout(&self) -> LowtoutR {
+        LowtoutR::new(((self.bits >> 6) & 1) != 0)
+    }
+    #[doc = "Bit 7 - Clock Hold"]
+    #[inline(always)]
+    pub fn clkhold(&self) -> ClkholdR {
+        ClkholdR::new(((self.bits >> 7) & 1) != 0)
+    }
+    #[doc = "Bit 15 - Synchronization Busy"]
+    #[inline(always)]
+    pub fn syncbusy(&self) -> SyncbusyR {
+        SyncbusyR::new(((self.bits >> 15) & 1) != 0)
+    }
+}
+impl W {
+    #[doc = "Bit 0 - Bus Error"]
+    #[inline(always)]
+    pub fn buserr(&mut self) -> BuserrW<'_, StatusSpec> {
+        BuserrW::new(self, 0)
+    }
+    #[doc = "Bit 1 - Transmit Collision"]
+    #[inline(always)]
+    pub fn coll(&mut self) -> CollW<'_, StatusSpec> {
+        CollW::new(self, 1)
+    }
+    #[doc = "Bit 2 - Received Not Acknowledge"]
+    #[inline(always)]
+    pub fn rxnack(&mut self) -> RxnackW<'_, StatusSpec> {
+        RxnackW::new(self, 2)
+    }
+    #[doc = "Bit 3 - Read / Write Direction"]
+    #[inline(always)]
+    pub fn dir(&mut self) -> DirW<'_, StatusSpec> {
+        DirW::new(self, 3)
+    }
+    #[doc = "Bit 4 - Repeated Start"]
+    #[inline(always)]
+    pub fn sr(&mut self) -> SrW<'_, StatusSpec> {
+        SrW::new(self, 4)
+    }
+    #[doc = "Bit 6 - SCL Low Time-out"]
+    #[inline(always)]
+    pub fn lowtout(&mut self) -> LowtoutW<'_, StatusSpec> {
+        LowtoutW::new(self, 6)
+    }
+    #[doc = "Bit 7 - Clock Hold"]
+    #[inline(always)]
+    pub fn clkhold(&mut self) -> ClkholdW<'_, StatusSpec> {
+        ClkholdW::new(self, 7)
+    }
+    #[doc = "Bit 15 - Synchronization Busy"]
+    #[inline(always)]
+    pub fn syncbusy(&mut self) -> SyncbusyW<'_, StatusSpec> {
+        SyncbusyW::new(self, 15)
+    }
+}
+#[doc = "I2CS Status\n\nYou can [`read`](crate::Reg::read) this register and get [`status::R`](R). You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`status::W`](W). You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api)."]
+pub struct StatusSpec;
+impl crate::RegisterSpec for StatusSpec {
+    type Ux = u16;
+}
+#[doc = "`read()` method returns [`status::R`](R) reader structure"]
+impl crate::Readable for StatusSpec {}
+#[doc = "`write(|w| ..)` method takes [`status::W`](W) writer structure"]
+impl crate::Writable for StatusSpec {
+    type Safety = crate::Unsafe;
+}
+#[doc = "`reset()` method sets STATUS to value 0"]
+impl crate::Resettable for StatusSpec {}
