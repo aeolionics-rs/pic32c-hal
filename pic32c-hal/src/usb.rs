@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! An [`embassy_usb_driver`] for the full-speed USB device controller of
-//! Microchip's PIC32CK (USBFS, DS60001795 chapter 38): the same IP as the
-//! SAM D5x/E5x `USB`, whose endpoint descriptors and buffers live in SRAM.
+//! Microchip's PIC32CK (USBFS, DS60001795 chapter 38) and PIC32CM SG00 (the
+//! same IP): that of the SAM D5x/E5x `USB`, whose endpoint descriptors and
+//! buffers live in SRAM.
 //!
 //! Full speed, device mode, eight endpoint numbers each with an IN and an
 //! OUT endpoint of up to 64 bytes, one bank each (no ping-pong), control,
@@ -13,13 +14,16 @@
 //!
 //! The module drives the registers itself. [`Driver::new`] takes the `USB`
 //! peripheral, a [`bind_interrupts!`](crate::bind_interrupts) type binding
-//! all four of its vectors (`USB_OTHER`, `USB_SOF`, `USB_TRCPT0`,
-//! `USB_TRCPT1`) to [`InterruptHandler`], and a generic clock generator at
-//! 48 MHz (crystal-derived, for USB's ±0.25 %), which it feeds the
-//! controller from (GCLK channel 46). The bus clocks are on at reset. The driver takes its
-//! pins, D+ (PD04) and D- (PD03), and gives them to the controller
-//! (function H): without them it attaches to nothing and sees the bus as
-//! SE0.
+//! all four of its vectors to [`InterruptHandler`] (`USB_OTHER`,
+//! `USB_SOF`, `USB_TRCPT0` and `USB_TRCPT1` on the PIC32CK;
+//! `USB_EORSMDNRSM`, `USB_SOFHSOF`, `USB_TRCPT00` and `USB_TRCPT10` on the
+//! SG00), and a generic clock generator at 48 MHz (crystal-derived, for
+//! USB's ±0.25 %), which it feeds the controller from (GCLK channel 46 on
+//! the PIC32CK, 38 on the SG00). The PIC32CK's bus clocks are on at reset;
+//! on the SG00 the driver turns them on. The driver
+//! takes its pins, D+ and D- (PD04 and PD03 on the PIC32CK, PD03 and PD02
+//! on the SG00), and gives them to the controller (function H): without
+//! them it attaches to nothing and sees the bus as SE0.
 //!
 //! The descriptors and buffers are this module's statics. The controller's
 //! DMA reaches only SRAM, so data is copied to and from them; with the
@@ -41,11 +45,59 @@ use crate::interrupt::{Interrupt, InterruptExt};
 
 /// USB's clock, and its GCLK channel.
 const USB_HZ: u32 = 48_000_000;
+#[cfg(pic32ck)]
 const GCLK_CHANNEL: usize = 46;
+#[cfg(pic32cm_sg)]
+const GCLK_CHANNEL: usize = 38;
 use crate::{Peri, peripherals};
 
 /// The controller's registers.
+#[cfg(pic32ck)]
 const BASE: usize = 0x4502_A000;
+#[cfg(pic32cm_sg)]
+const BASE: usize = 0x4483_2000;
+
+/// MCLK's CLKMSK1: the controller's AHB (bit 22) and APB (bit 23) clocks on
+/// the SG00. Its data sheet gives every mask a reset value of 0; on the
+/// bench they read all on once the boot ROM has run, but the driver turns
+/// these on rather than count on that.
+#[cfg(pic32cm_sg)]
+const MCLK_CLKMSK1: usize = 0x4400_A040;
+#[cfg(pic32cm_sg)]
+const MCLK_USB: u32 = 0b11 << 22;
+
+/// The controller's pins, D+ and D-.
+#[cfg(pic32ck)]
+type DpPin = peripherals::PD04;
+#[cfg(pic32ck)]
+type DmPin = peripherals::PD03;
+#[cfg(pic32cm_sg)]
+type DpPin = peripherals::PD03;
+#[cfg(pic32cm_sg)]
+type DmPin = peripherals::PD02;
+
+/// Its four vectors: the device events (reset, suspend, resume, ...), SOF,
+/// and the transfers on endpoints 0 and 1 to 7.
+#[cfg(pic32ck)]
+type Events = typelevel::USB_OTHER;
+#[cfg(pic32ck)]
+type Sof = typelevel::USB_SOF;
+#[cfg(pic32ck)]
+type Transfer0 = typelevel::USB_TRCPT0;
+#[cfg(pic32ck)]
+type Transfer1 = typelevel::USB_TRCPT1;
+#[cfg(pic32cm_sg)]
+type Events = typelevel::USB_EORSMDNRSM;
+#[cfg(pic32cm_sg)]
+type Sof = typelevel::USB_SOFHSOF;
+#[cfg(pic32cm_sg)]
+type Transfer0 = typelevel::USB_TRCPT00;
+#[cfg(pic32cm_sg)]
+type Transfer1 = typelevel::USB_TRCPT10;
+#[cfg(pic32ck)]
+const LINES: [Interrupt; 4] = [Interrupt::USB_OTHER, Interrupt::USB_SOF, Interrupt::USB_TRCPT0, Interrupt::USB_TRCPT1];
+#[cfg(pic32cm_sg)]
+const LINES: [Interrupt; 4] = [Interrupt::USB_EORSMDNRSM, Interrupt::USB_SOFHSOF, Interrupt::USB_TRCPT00, Interrupt::USB_TRCPT10];
 const CTRLA: usize = 0x00;
 const SYNCBUSY: usize = 0x02;
 const CTRLB: usize = 0x08;
@@ -284,9 +336,9 @@ pub struct InterruptHandler {
 }
 
 macro_rules! handler {
-    ($($irq:ident),*) => {
+    ($($irq:ty),*) => {
         $(
-            impl Handler<typelevel::$irq> for InterruptHandler {
+            impl Handler<$irq> for InterruptHandler {
                 unsafe fn on_interrupt() {
                     on_interrupt();
                 }
@@ -295,7 +347,7 @@ macro_rules! handler {
     };
 }
 
-handler!(USB_OTHER, USB_SOF, USB_TRCPT0, USB_TRCPT1);
+handler!(Events, Sof, Transfer0, Transfer1);
 
 /// Takes the device events for [`Bus::poll`](embassy_usb_driver::Bus::poll)
 /// and masks each endpoint interrupt that fired, waking its waiter, which
@@ -361,17 +413,22 @@ impl<'d> Driver<'d> {
     #[allow(clippy::needless_pass_by_value, reason = "the controller has the pins for 'd")]
     pub fn new(
         _usb: Peri<'d, peripherals::USB>,
-        _irqs: impl Binding<typelevel::USB_OTHER, InterruptHandler> + Binding<typelevel::USB_SOF, InterruptHandler> + Binding<typelevel::USB_TRCPT0, InterruptHandler> + Binding<typelevel::USB_TRCPT1, InterruptHandler> + 'd,
-        dp: Peri<'d, peripherals::PD04>,
-        dm: Peri<'d, peripherals::PD03>,
+        _irqs: impl Binding<Events, InterruptHandler> + Binding<Sof, InterruptHandler> + Binding<Transfer0, InterruptHandler> + Binding<Transfer1, InterruptHandler> + 'd,
+        dp: Peri<'d, DpPin>,
+        dm: Peri<'d, DmPin>,
         generator: usize,
     ) -> Self {
         let hz = crate::clocks::generator_hz(generator);
         assert!(hz == Some(USB_HZ), "USB needs 48 MHz; generator {generator} runs at {hz:?} Hz");
+        #[cfg(pic32cm_sg)]
+        critical_section::with(|_| {
+            // SAFETY: MCLK's CLKMSK1, a read-modify-write of the USB bits.
+            unsafe { write_volatile(MCLK_CLKMSK1 as *mut u32, read_volatile(MCLK_CLKMSK1 as *const u32) | MCLK_USB) };
+        });
         crate::clocks::enable_channel(GCLK_CHANNEL, generator);
         crate::gpio::set_function(&*dp, Function::H);
         crate::gpio::set_function(&*dm, Function::H);
-        for irq in [Interrupt::USB_OTHER, Interrupt::USB_SOF, Interrupt::USB_TRCPT0, Interrupt::USB_TRCPT1] {
+        for irq in LINES {
             irq.unpend();
             // SAFETY: the binding makes each vector call the handler.
             unsafe { irq.enable() };

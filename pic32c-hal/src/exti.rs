@@ -3,13 +3,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Waiting on pin levels and edges through the External Interrupt
-//! Controller (EIC, DS60001795 chapter 30): [`ExtiInput`].
+//! Controller (EIC; DS60001795 chapter 30 on the PIC32CK, the same IP on the
+//! PIC32CM SG00): [`ExtiInput`].
 //!
 //! The EIC has 16 lines, `EXTINT0` to `EXTINT15`, each a singleton; each pin
 //! that has a line has exactly one ([`ExtiPin::Channel`], from the chip's
 //! pin multiplexing table: mostly the pin's number modulo 16, but not
-//! always), and [`ExtiInput::new`] takes the pin and its line. PD02 has only
-//! the NMI, which [`Nmi`] drives.
+//! always), and [`ExtiInput::new`] takes the pin and its line. One pin has
+//! only the NMI, which [`Nmi`] drives: PD02 on the PIC32CK, PD00 on the
+//! SG00.
 //!
 //! Edges are detected asynchronously and levels without the filter, so the
 //! EIC needs no clock. Its sense settings can only change while it's
@@ -17,8 +19,10 @@
 //! can drop another line's edge in that moment.
 //!
 //! With feature `rt` the HAL defines the 16 vectors (`EIC_EXTINT_0` to
-//! `_15`). On the SG parts the EIC, like PORT, has a Secure view, which this
-//! module uses (`EIC_SEC`, `0x4401_B000`); the GC has only `0x4401_A000`.
+//! `_15` on the PIC32CK, `EIC_EXTINT0` to `15` on the SG00). On the PIC32CK
+//! SG the EIC, like PORT, has a Secure view, which this module uses
+//! (`EIC_SEC`, `0x4401_B000`); the GC has only `0x4401_A000`, and the SG00
+//! only `0x4402_0000`.
 
 use core::future::poll_fn;
 use core::ptr::{read_volatile, write_volatile};
@@ -29,7 +33,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{Flex, Function, Level, Pin, Pull};
 use crate::interrupt::{Interrupt, InterruptExt};
-use crate::{Peri, PeripheralType, peripherals};
+use crate::{Peri, PeripheralType};
 
 const CTRLA: usize = 0x00;
 const NMICTRL: usize = 0x01;
@@ -127,6 +131,7 @@ macro_rules! vectors {
     };
 }
 
+#[cfg(pic32ck)]
 vectors!(
     EIC_EXTINT_0 = 0,
     EIC_EXTINT_1 = 1,
@@ -144,6 +149,25 @@ vectors!(
     EIC_EXTINT_13 = 13,
     EIC_EXTINT_14 = 14,
     EIC_EXTINT_15 = 15
+);
+#[cfg(pic32cm_sg)]
+vectors!(
+    EIC_EXTINT0 = 0,
+    EIC_EXTINT1 = 1,
+    EIC_EXTINT2 = 2,
+    EIC_EXTINT3 = 3,
+    EIC_EXTINT4 = 4,
+    EIC_EXTINT5 = 5,
+    EIC_EXTINT6 = 6,
+    EIC_EXTINT7 = 7,
+    EIC_EXTINT8 = 8,
+    EIC_EXTINT9 = 9,
+    EIC_EXTINT10 = 10,
+    EIC_EXTINT11 = 11,
+    EIC_EXTINT12 = 12,
+    EIC_EXTINT13 = 13,
+    EIC_EXTINT14 = 14,
+    EIC_EXTINT15 = 15
 );
 
 /// An EIC line.
@@ -375,7 +399,8 @@ pub fn on_nmi() {
     }
 }
 
-/// The non-maskable interrupt on PD02 (SW1 on the Curiosity Ultra boards),
+/// The non-maskable interrupt on its pin (PD02 on the PIC32CK, SW1 on the
+/// Curiosity Ultra boards; PD00 on the SG00),
 /// armed for one firing at a time.
 pub struct Nmi<'d> {
     _pin: Flex<'d>,
@@ -384,7 +409,7 @@ pub struct Nmi<'d> {
 impl<'d> Nmi<'d> {
     /// The NMI on `pin`, with `pull`, disarmed.
     #[must_use]
-    pub fn new(pin: Peri<'d, peripherals::PD02>, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, crate::chip::NmiPin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
         pin.set_as_function_keeping_input(Function::A);

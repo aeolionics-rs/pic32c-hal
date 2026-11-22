@@ -2,9 +2,14 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The ADC (at `0x4501_0000`): one 12-bit SAR core with 14 single-ended
-//! inputs, the pins VINP0-11 and two inside the chip, the temperature sensor
-//! (AIN12) and the 1.2 V bandgap, IVREF (AIN13). DS60001795 section 44.
+//! The ADC (at `0x4501_0000` on the PIC32CK, `0x4481_8000` on the PIC32CM
+//! SG00, the same IP): one 12-bit SAR core with single-ended inputs. On the
+//! PIC32CK, the pins VINP0-11 and two inside the chip, the temperature
+//! sensor (AIN12) and the 1.2 V bandgap, IVREF (AIN13); DS60001795 section
+//! 44. On the SG00, the pins AIN0-11 and the bandgap on 14 (DS60001921's
+//! table lists no temperature sensor among the inputs, and its CAL OTP no
+//! factory readings, so `Temperature` and `Calibration` are the PIC32CK's
+//! only); bind `ADC_REQ1` there.
 //!
 //! Its channel, trigger and clock settings are fixed while it's enabled (a
 //! write then is a bus error), so [`Adc`] sets them once, with no hardware
@@ -74,7 +79,16 @@ use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::mode::{Async, Blocking};
 use crate::{Peri, peripherals};
 
+#[cfg(pic32ck)]
 const ADC: usize = 0x4501_0000;
+#[cfg(pic32cm_sg)]
+const ADC: usize = 0x4481_8000;
+
+/// The core's interrupt line (channel ready).
+#[cfg(pic32ck)]
+type Line = typelevel::ADC_CORE1;
+#[cfg(pic32cm_sg)]
+type Line = typelevel::ADC_REQ1;
 const CTRLA: usize = ADC;
 const CTRLB: usize = ADC + 0x04;
 const CTRLD: usize = ADC + 0x10;
@@ -125,21 +139,30 @@ const GCLK_MAX_HZ: u32 = 100_000_000;
 const WARM_UP_NANOS: u64 = 50_000;
 
 /// SUPC.VREFCTRL: TSEN puts the temperature sensor on AIN12.
+#[cfg(pic32ck)]
 const SUPC_VREFCTRL: usize = 0x4400_8020;
+#[cfg(pic32ck)]
 const TSEN: u32 = 1 << 4;
 
 /// The CAL OTP: FCCFG65 holds the ADC's CALCTRL, FCCFG69-71 the
 /// temperature sensor's and the bandgap's factory readings.
 const FCCFG65: usize = 0x0A00_7184;
+#[cfg(pic32ck)]
 const FCCFG69: usize = 0x0A00_7194;
+#[cfg(pic32ck)]
 const FCCFG70: usize = 0x0A00_7198;
+#[cfg(pic32ck)]
 const FCCFG71: usize = 0x0A00_719C;
 
 /// Polls of a ready flag before giving up: well over the warm-up.
 const POLLS: u32 = 10_000_000;
 
+#[cfg(pic32ck)]
 const TEMPERATURE_CHANNEL: u8 = 12;
+#[cfg(pic32ck)]
 const VREFINT_CHANNEL: u8 = 13;
+#[cfg(pic32cm_sg)]
+const VREFINT_CHANNEL: u8 = 14;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -183,8 +206,9 @@ pub enum Reference {
     /// AVDD.
     #[default]
     Avdd,
-    /// VREFP on PB01 (2.4 V to AVDD). The driver doesn't yet put PB01 on
-    /// its analog function (B): do that first, with
+    /// VREFP on PB01 on the PIC32CK, VREFH on PA09 on the SG00 (2.4 V to
+    /// AVDD). The driver doesn't yet put the pin on its analog function
+    /// (B): do that first, with
     /// [`gpio::set_as_function`](crate::gpio::set_as_function).
     External,
 }
@@ -290,7 +314,8 @@ impl SealedAdcChannel for AnyAdcChannel<'_> {
 }
 impl AdcChannel for AnyAdcChannel<'_> {}
 
-/// The 1.2 V bandgap, AIN13, from [`Adc::enable_vrefint`].
+/// The 1.2 V bandgap (AIN13 on the PIC32CK, input 14 on the SG00), from
+/// [`Adc::enable_vrefint`].
 pub struct VrefInt;
 
 impl SealedAdcChannel for VrefInt {
@@ -301,13 +326,16 @@ impl SealedAdcChannel for VrefInt {
 impl AdcChannel for VrefInt {}
 
 /// The die's temperature sensor, AIN12, from [`Adc::enable_temperature`].
+#[cfg(pic32ck)]
 pub struct Temperature;
 
+#[cfg(pic32ck)]
 impl SealedAdcChannel for Temperature {
     fn channel(&self) -> u8 {
         TEMPERATURE_CHANNEL
     }
 }
+#[cfg(pic32ck)]
 impl AdcChannel for Temperature {}
 
 macro_rules! impl_adc_pin {
@@ -324,9 +352,15 @@ macro_rules! impl_adc_pin {
     )*};
 }
 
-// VINP0-11 (the ATDF's ADC signals, function B), the same on both chips.
+// VINP0-11 (the ATDF's ADC signals, function B), the same on the SG01 and
+// GC01.
+#[cfg(pic32ck)]
 impl_adc_pin!(PA04 = 0, PA05 = 1, PA06 = 2, PA07 = 3, PA08 = 4, PA09 = 5, PA10 = 6, PA11 = 7, PA12 = 8, PB00 = 9, PB11 = 10, PB12 = 11,);
+// AIN0-11 on the SG00 (likewise, function B).
+#[cfg(pic32cm_sg)]
+impl_adc_pin!(PA03 = 0, PA04 = 1, PA05 = 2, PA06 = 3, PA07 = 4, PA08 = 5, PA09 = 6, PB00 = 7, PB03 = 8, PB04 = 9, PB05 = 10, PB06 = 11,);
 
+#[cfg(pic32ck)]
 /// The factory's readings, from the CAL OTP (DS60001795 section 27.6.10):
 /// the temperature sensor (PTAT) and the buffered bandgap at two
 /// temperatures, 12 bits against `reference_mv`.
@@ -345,6 +379,7 @@ pub struct Calibration {
     pub reference_mv: u16,
 }
 
+#[cfg(pic32ck)]
 impl Calibration {
     /// This chip's calibration.
     #[must_use]
@@ -406,13 +441,14 @@ impl Calibration {
     }
 }
 
-/// The ADC's core interrupt handler: bind `ADC_CORE1` to it with
+/// The ADC's core interrupt handler: bind `ADC_CORE1` (PIC32CK) or
+/// `ADC_REQ1` (SG00) to it with
 /// [`bind_interrupts!`](crate::bind_interrupts).
 pub struct InterruptHandler {
     _private: (),
 }
 
-impl Handler<typelevel::ADC_CORE1> for InterruptHandler {
+impl Handler<Line> for InterruptHandler {
     unsafe fn on_interrupt() {
         // Mask the channel-ready flags; the waiting side clears them.
         write32(INTENCLR, CHRDY_ALL);
@@ -446,9 +482,12 @@ impl<'d> Adc<'d, Async> {
     /// # Errors
     ///
     /// See [`ConfigError`].
-    pub fn new(adc: Peri<'d, peripherals::ADC>, _irqs: impl Binding<typelevel::ADC_CORE1, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
+    pub fn new(adc: Peri<'d, peripherals::ADC>, _irqs: impl Binding<Line, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
         let adc = Self::setup(adc, config)?;
+        #[cfg(pic32ck)]
         let irq = crate::interrupt::ADC_CORE1;
+        #[cfg(pic32cm_sg)]
+        let irq = crate::interrupt::ADC_REQ1;
         irq.unpend();
         // SAFETY: the handler only masks the ADC's flags and wakes.
         unsafe { irq.enable() };
@@ -524,16 +563,18 @@ impl<'d, M> Adc<'d, M> {
         self.resolution
     }
 
-    /// The bandgap on AIN13. Sample it for [`SampleTime::LONG`] (30 µs at
-    /// least).
+    /// The bandgap (AIN13 on the PIC32CK, input 14 on the SG00). Sample it
+    /// for [`SampleTime::LONG`] (30 µs at least).
     #[must_use]
     pub fn enable_vrefint(&self) -> VrefInt {
         VrefInt
     }
 
-    /// The temperature sensor on AIN12 (SUPC.VREFCTRL.TSEN). Sample it for
+    /// The temperature sensor on AIN12 (SUPC.VREFCTRL.TSEN), on the PIC32CK.
+    /// Sample it for
     /// [`SampleTime::LONG`]. It settles for about 100 ms after the first
     /// call, reading low meanwhile.
+    #[cfg(pic32ck)]
     #[must_use]
     pub fn enable_temperature(&self) -> Temperature {
         write32(SUPC_VREFCTRL, read32(SUPC_VREFCTRL) | TSEN);
@@ -624,6 +665,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(pic32ck)]
     #[expect(clippy::decimal_bitwise_operands, reason = "the data sheet's values, in decimal as it gives them")]
     fn calibration_defaults() {
         // The data sheet's defaults: PTAT 992 at 25.0 °C, 1325 at 125.0 °C,

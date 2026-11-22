@@ -2,9 +2,14 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The real-time counter (RTC, DS60001795 chapter 25) as a clock and
-//! calendar, from the 32.768 kHz crystal (XOSC32K on PB02/PB03; OSC32KCTRL,
-//! chapter 22) or the internal ultra-low-power oscillator, and an alarm.
+//! The real-time counter (RTC; DS60001795 chapter 25 on the PIC32CK,
+//! DS60001921 on the PIC32CM SG00, the same IP) as a clock and calendar,
+//! from the 32.768 kHz crystal (XOSC32K; OSC32KCTRL) or the internal
+//! ultra-low-power oscillator, and an alarm.
+//!
+//! The alarm's interrupt: bind [`InterruptHandler`] to `RTC` on the
+//! PIC32CK, to `RTC_CMP0` on the SG00 (whose RTC has four lines; ALARM0's
+//! flag comes on the compare one).
 //!
 //! The RTC and the crystal are in the backup domain: they keep running
 //! through every reset but power-on. So [`Rtc::new`] keeps the time if it
@@ -26,7 +31,10 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as _};
 use crate::{Peri, interrupt, peripherals};
 
+#[cfg(pic32ck)]
 const RTC: usize = 0x4401_8000;
+#[cfg(pic32cm_sg)]
+const RTC: usize = 0x4500_6000;
 const CTRLA: usize = RTC;
 const INTENCLR: usize = RTC + 0x08;
 const INTENSET: usize = RTC + 0x0A;
@@ -50,7 +58,10 @@ const ALARM0_FLAG: u16 = 1 << 8;
 const MATCH_ALL: u8 = 6;
 const SYNC_ALL: u32 = 0xFFFF_FFFF;
 
+#[cfg(pic32ck)]
 const OSC32KCTRL: usize = 0x4400_E000;
+#[cfg(pic32cm_sg)]
+const OSC32KCTRL: usize = 0x4500_8000;
 const OSC_STATUS: usize = OSC32KCTRL + 0x0C;
 const CLKSELCTRL: usize = OSC32KCTRL + 0x10;
 const XOSC32K: usize = OSC32KCTRL + 0x1C;
@@ -69,9 +80,19 @@ const RTCSEL_MASK: u32 = 0b11;
 const RTCSEL_ULP1K: u32 = 1;
 const RTCSEL_XOSC1K: u32 = 3;
 
-/// MCLK's APB mask for the RTC: CLKMSK1 bit 12 (index 44).
-const MCLK_CLKMSK1: usize = 0x4401_2040;
+/// MCLK's APB mask for the RTC: CLKMSK1 bit 12 (index 44) on the PIC32CK,
+/// CLKMSK0 bit 12 (index 12) on the SG00.
+#[cfg(pic32ck)]
+const MCLK_CLKMSK: usize = 0x4401_2040;
+#[cfg(pic32cm_sg)]
+const MCLK_CLKMSK: usize = 0x4400_A03C;
 const MCLK_RTC: u32 = 1 << 12;
+
+/// The alarm's interrupt line.
+#[cfg(pic32ck)]
+type Line = interrupt::typelevel::RTC;
+#[cfg(pic32cm_sg)]
+type Line = interrupt::typelevel::RTC_CMP0;
 
 /// Polls of XOSC32KRDY: a few seconds, longer than any crystal's start-up.
 const XOSC_POLLS: u32 = 200_000_000;
@@ -82,7 +103,8 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Source {
-    /// The 32.768 kHz crystal on XIN32/XOUT32 (PB02/PB03): tens of ppm.
+    /// The 32.768 kHz crystal on XIN32/XOUT32 (PB02/PB03 on the PIC32CK,
+    /// PB01/PB02 on the SG00): tens of ppm.
     Crystal,
     /// The internal ultra-low-power oscillator: percent, but no crystal.
     UltraLowPower,
@@ -278,12 +300,13 @@ impl core::fmt::Display for DateTime {
 }
 
 /// The RTC's interrupt handler: bind it with
-/// [`bind_interrupts!`](crate::bind_interrupts) to `RTC`.
+/// [`bind_interrupts!`](crate::bind_interrupts) to `RTC` (PIC32CK) or
+/// `RTC_CMP0` (SG00).
 pub struct InterruptHandler {
     _private: (),
 }
 
-impl Handler<interrupt::typelevel::RTC> for InterruptHandler {
+impl Handler<Line> for InterruptHandler {
     unsafe fn on_interrupt() {
         let fired = read16(INTFLAG) & read16(INTENSET);
         if fired & ALARM0_FLAG != 0 {
@@ -309,9 +332,9 @@ impl<'d> Rtc<'d> {
     ///
     /// [`ConfigError::NoCrystal`] if the crystal doesn't start.
     #[allow(clippy::needless_pass_by_value, reason = "taking the RTC is what makes it this one's")]
-    pub fn new(rtc: Peri<'d, peripherals::RTC>, _irqs: impl Binding<interrupt::typelevel::RTC, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
+    pub fn new(rtc: Peri<'d, peripherals::RTC>, _irqs: impl Binding<Line, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
         let _ = rtc;
-        critical_section::with(|_| write32(MCLK_CLKMSK1, read32(MCLK_CLKMSK1) | MCLK_RTC));
+        critical_section::with(|_| write32(MCLK_CLKMSK, read32(MCLK_CLKMSK) | MCLK_RTC));
         let rtcsel = match config.source {
             Source::Crystal => RTCSEL_XOSC1K,
             Source::UltraLowPower => RTCSEL_ULP1K,
@@ -336,9 +359,9 @@ impl<'d> Rtc<'d> {
             write16(CTRLA, ctrla | ENABLE);
             sync();
         }
-        interrupt::typelevel::RTC::unpend();
+        Line::unpend();
         // SAFETY: the binding makes the vector call the handler.
-        unsafe { interrupt::typelevel::RTC::enable() };
+        unsafe { Line::enable() };
         Ok(Self { was_running: running, _rtc: PhantomData })
     }
 

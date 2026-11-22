@@ -22,6 +22,14 @@ pub const FLASH_SIZE: usize = 512 << 10;
 /// PORT.
 pub(crate) const PORT: usize = 0x4480_0000;
 
+/// The EIC, which has one view on the SG00.
+#[cfg(feature = "exti")]
+pub(crate) const EIC: usize = 0x4402_0000;
+
+/// The pin with only the NMI on it.
+#[cfg(feature = "exti")]
+pub(crate) type NmiPin = peripherals::PD00;
+
 embassy_hal_internal::interrupt_mod!(
     FCR,
     FCW,
@@ -256,7 +264,26 @@ embassy_hal_internal::peripherals!(
     SERCOM4,
     SERCOM5,
     WDT,
+    ADC,
     FCW,
+    RTC,
+    USB,
+    EXTINT0,
+    EXTINT1,
+    EXTINT2,
+    EXTINT3,
+    EXTINT4,
+    EXTINT5,
+    EXTINT6,
+    EXTINT7,
+    EXTINT8,
+    EXTINT9,
+    EXTINT10,
+    EXTINT11,
+    EXTINT12,
+    EXTINT13,
+    EXTINT14,
+    EXTINT15,
     // The DMAC's channels.
     DMA_CH0,
     DMA_CH1,
@@ -407,3 +434,103 @@ crate::can::instance::impl_can_pins! {
     CAN0: rx PC01 H ioset 1, tx PC02 H ioset 1, rx PD06 H ioset 2, tx PD08 H ioset 2, rx PA10 H ioset 3, tx PA11 H ioset 3;
     CAN1: rx PC05 H ioset 1, tx PC06 H ioset 1, rx PA00 H ioset 2, tx PA01 H ioset 2, rx PD12 H ioset 3, tx PD13 H ioset 3;
 }
+
+#[cfg(feature = "exti")]
+crate::exti::impl_channels!(
+    EXTINT0 = 0,
+    EXTINT1 = 1,
+    EXTINT2 = 2,
+    EXTINT3 = 3,
+    EXTINT4 = 4,
+    EXTINT5 = 5,
+    EXTINT6 = 6,
+    EXTINT7 = 7,
+    EXTINT8 = 8,
+    EXTINT9 = 9,
+    EXTINT10 = 10,
+    EXTINT11 = 11,
+    EXTINT12 = 12,
+    EXTINT13 = 13,
+    EXTINT14 = 14,
+    EXTINT15 = 15
+);
+
+// The EIC lines, from the ATDF's pin multiplexing (function A). PD00 has
+// only the NMI.
+#[cfg(feature = "exti")]
+crate::exti::impl_exti_pins!(
+    PA00 = EXTINT0,
+    PA01 = EXTINT1,
+    PA02 = EXTINT2,
+    PA03 = EXTINT3,
+    PA04 = EXTINT4,
+    PA05 = EXTINT5,
+    PA06 = EXTINT6,
+    PA07 = EXTINT7,
+    PA08 = EXTINT8,
+    PA09 = EXTINT9,
+    PA10 = EXTINT10,
+    PA11 = EXTINT11,
+    PA12 = EXTINT12,
+    PA13 = EXTINT13,
+    PA14 = EXTINT14,
+    PA15 = EXTINT15,
+    PA16 = EXTINT0,
+    PA17 = EXTINT1,
+    PA18 = EXTINT2,
+    PA19 = EXTINT3,
+    PA20 = EXTINT4,
+    PB00 = EXTINT0,
+    PB01 = EXTINT1,
+    PB02 = EXTINT2,
+    PB03 = EXTINT3,
+    PB04 = EXTINT4,
+    PB05 = EXTINT5,
+    PB06 = EXTINT6,
+    PB07 = EXTINT8,
+    PB08 = EXTINT9,
+    PB09 = EXTINT10,
+    PB10 = EXTINT11,
+    PB11 = EXTINT12,
+    PB12 = EXTINT2,
+    PB13 = EXTINT14,
+    PB14 = EXTINT15,
+    PB15 = EXTINT0,
+    PB16 = EXTINT1,
+    PB17 = EXTINT2,
+    PC00 = EXTINT0,
+    PC01 = EXTINT1,
+    PC02 = EXTINT2,
+    PC03 = EXTINT3,
+    PC04 = EXTINT4,
+    PC05 = EXTINT5,
+    PC06 = EXTINT6,
+    PC09 = EXTINT9,
+    PC10 = EXTINT10,
+    PC11 = EXTINT11,
+    PC12 = EXTINT12,
+    PC13 = EXTINT13,
+    PC14 = EXTINT14,
+    PC15 = EXTINT15,
+    PC16 = EXTINT0,
+    PC17 = EXTINT1,
+    PC18 = EXTINT2,
+    PC19 = EXTINT3,
+    PD01 = EXTINT1,
+    PD04 = EXTINT2,
+    PD05 = EXTINT3,
+    PD07 = EXTINT4,
+    PD08 = EXTINT5,
+    PD09 = EXTINT6,
+    PD10 = EXTINT8,
+    PD11 = EXTINT9,
+    PD12 = EXTINT10,
+    PD13 = EXTINT11,
+    PD14 = EXTINT12,
+    PD15 = EXTINT13,
+    PD16 = EXTINT14,
+    PD17 = EXTINT15,
+    PD18 = EXTINT0,
+    PD19 = EXTINT1,
+    PD20 = EXTINT2
+);

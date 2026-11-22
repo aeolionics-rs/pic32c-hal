@@ -46,7 +46,7 @@ jobs:
             features: time-driver
           - chip: pic32cm5112sg00100
             target: thumbv8m.base-none-eabi
-            features: can-hal,time-driver
+            features: can-hal,exti,time-driver,usb
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install

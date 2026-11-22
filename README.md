@@ -221,15 +221,24 @@ The plan is to publish to crates.io once these have stabilized.
   (the SAM D21/C21 kind, `dma_u2223`: 8 channels, descriptors in SRAM, the
   CK's `dma` API; a ring is two half-ring descriptors linked to each
   other), and `flash` on its FCW (04971: NVMOP in CTRLOP, 16-byte flash
-  words, one panel, every write pre-programmed; blocking and async). Not
-  yet: the rest.
+  words, one panel, every write pre-programmed; blocking and async), and
+  the CK's `rtc`, `exti`, `adc` and `usb` at the SG00's addresses: the RTC's
+  alarm on `RTC_CMP0` (its RTC has four lines), the EIC's one view and
+  `EIC_EXTINT0`-`15`, the NMI on PD00; the ADC's AIN0-11 and the bandgap on
+  input 14, on `ADC_REQ1` (no temperature sensor or factory readings: the
+  data sheet gives neither); the full-speed USB on PD03/PD02, GCLK channel
+  38, its four vectors under the SG00's names.
 - `examples/pic32cm-sg00-curiosity-pro`: board support for the SG00
   Curiosity Pro (EV53V42A; VCOM on SERCOM4 PD19/PD20, LED0 PA20, LED1
   PA18, SW0 PB07, SW1 PB11), examples `blink`, `uart_echo`, `watchdog`
   (with the unique ID), `can_loopback` (internal loopback only), `dma`,
   `uart_dma` (256-byte blocks echoed by DMA, a block at a time),
   `uart_ring` (the ring receiver, driven from the host), `spi` (in
-  loopback on the mikroBUS pins, SERCOM2), `flash` and `flash_async`
+  loopback on the mikroBUS pins, SERCOM2), `rtc` (the 32.768 kHz crystal
+  Y303), `exti` (mikroBUS AN, PA07, and SW0), `adc` (the bandgap against
+  AVDD and the board's MCP1501 on VREFH, the potentiometer on PB06),
+  `usb_echo` (CDC-ACM on the target Micro-AB; `tools/host/cdc_echo_test.py`
+  drives it), `flash` and `flash_async`
   (scratch pages at offsets 0x7_C000 and 0x4_0000), and `i2c` (an `SHT4x`
   and a BMP280 or BME280 wired to EXT1 or the mikroBUS socket; the board
   has no I2C device of its own). Build with `cargo build
@@ -250,7 +259,13 @@ The plan is to publish to crates.io once these have stabilized.
   blocking and on interrupts at 100 kHz, 400 kHz and 1 MHz, and both
   sensors' readings. PD01 and PD00 work together as SERCOM1's pads 0
   and 1 (the chip file's set 3); which other pins share their set is still
-  the open question below.
+  the open question below. Then `rtc`: −13 ppm against the 12 MHz
+  crystal, the calendar through 29 February and a new year, the alarm in
+  2.97 s, the time kept through a reset; `exti`: every edge and level
+  waited for, woken 23 µs after the flip, 100 back-to-back edges with none
+  missed; `adc`: the bandgap at 1,490 counts (AVDD 3,298 mV), 1,194 mV
+  against the MCP1501, 10 and 8 bits agreeing, async reads matching; and
+  `usb_echo`: every length to 10,000 bytes echoed, 527 kB/s both ways.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -345,8 +360,10 @@ PIC32CM PL10:
 
 PIC32CM SG00:
 
-- CAN on a bus (only internal loopback has run); `exti`, `rtc`, `adc` and
-  `usb` (the CK's IP versions) checked on the board.
+- CAN on a bus (only internal loopback has run).
+- The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
+  ADC input for it and the CAL OTP no factory readings (the CK's
+  FCCFG69-71), so `adc` offers neither yet.
 - cortex-m 0.7 sets NVIC priorities with byte writes (only ARMv6-M gets
   word writes), and the M23 ignored them on the bench: `set_priority`
   does nothing there. Needs a word-write path (or a cortex-m fix) before
