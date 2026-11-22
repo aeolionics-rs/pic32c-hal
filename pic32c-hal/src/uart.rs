@@ -52,12 +52,12 @@ const INTFLAG: usize = 0x18;
 const STATUS: usize = 0x1A;
 const SYNCBUSY: usize = 0x1C;
 const DATA: usize = 0x28;
-#[cfg(dma)]
+#[cfg(all(dma, sercom_v6))]
 const FIFOSPACE: usize = 0x34;
 /// FIFOSPACE.RXSPACE: bytes in the receive FIFO.
-#[cfg(dma)]
+#[cfg(all(dma, sercom_v6))]
 const RXSPACE_SHIFT: u16 = 8;
-#[cfg(dma)]
+#[cfg(all(dma, sercom_v6))]
 const RXSPACE_MASK: u16 = 0x1F;
 
 const SWRST: u32 = 1 << 0;
@@ -994,15 +994,8 @@ impl UartRx<'_, Async> {
             return Ok(());
         };
         let data = (self.base + DATA) as *const u8;
-        let fifo = read32(self.base, CTRLC) & FIFOEN != 0;
         for chunk in buffer.chunks_mut(MAX_BLOCK) {
-            if fifo {
-                // A receive DMA started on an empty FIFO takes a stale byte
-                // from the FIFO's memory first (seen on the bench), so start
-                // it only once a byte is in: at once if one is, otherwise on
-                // the RXC interrupt.
-                fifo_byte(self.base, self.state).await;
-            }
+            fifo_byte(self.base, self.state).await;
             // SAFETY: this SERCOM's DATA, a UART making receive requests.
             let transfer = unsafe { Transfer::new_read(channel.reborrow(), Request::sercom_rx(self.number), data, chunk) };
             transfer.await.map_err(Error::Dma)?;
@@ -1023,9 +1016,16 @@ impl UartRx<'_, Async> {
     }
 }
 
-/// Waits until the receive FIFO holds a byte.
-#[cfg(dma)]
+/// With the FIFO on, waits until it holds a byte: a receive DMA started on
+/// an empty FIFO takes a stale byte from the FIFO's memory first (seen on
+/// the bench), so it must start only once a byte is in, at once if one is,
+/// otherwise on the RXC interrupt. With the FIFO off, or none (SERCOM v1),
+/// it returns at once.
+#[cfg(all(dma, sercom_v6))]
 async fn fifo_byte(base: usize, state: &'static State) {
+    if read32(base, CTRLC) & FIFOEN == 0 {
+        return;
+    }
     poll_fn(|cx| {
         state.rx_waker.register(cx.waker());
         if (read16(base, FIFOSPACE) >> RXSPACE_SHIFT) & RXSPACE_MASK != 0 {
@@ -1037,6 +1037,9 @@ async fn fifo_byte(base: usize, state: &'static State) {
     })
     .await;
 }
+
+#[cfg(all(dma, sercom_v1))]
+async fn fifo_byte(_base: usize, _state: &'static State) {}
 
 impl<M> UartTx<'_, M> {
     /// The baud rate, which the receiver shares.

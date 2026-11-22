@@ -2,8 +2,9 @@
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! The DMA controller of the PIC32CM SG00 (DS60001921 chapter 28): one
-//! DMAC with 8 channels, each a singleton (`DMA_CH0` to `DMA_CH7`).
+//! The DMA controller of the PIC32CM SG00 (DS60001921 chapter 28) and the
+//! PL10 (DS40002667): one DMAC, with 8 channels on the SG00 (`DMA_CH0` to
+//! `DMA_CH7`) and 2 on the PL10 (`DMA_CH0`, `DMA_CH1`), each a singleton.
 //!
 //! This is the SAM D21/C21 kind of DMAC (`dma_u2223_v2`), not the PIC32CK's
 //! own DMA IP, behind the same API as the CK's [`dma`](self): each channel
@@ -24,26 +25,34 @@
 //!
 //! The channels' registers are reached through one window, CHID choosing
 //! the channel, so every access to them is in a critical section. With
-//! feature `rt` the HAL defines the controller's vectors (`DMAC_TCMPL0` to
-//! `_TCMPL3`, one each for channels 0 to 3, and `DMAC_TCMPL4` for 4 to 7).
+//! feature `rt` the HAL defines the controller's vectors: on the SG00
+//! `DMAC_TCMPL0` to `_TCMPL3`, one each for channels 0 to 3, and
+//! `DMAC_TCMPL4` for 4 to 7; on the PL10 `DMAC`, for both.
 
 use core::cell::UnsafeCell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::{addr_of, read_volatile, write_volatile};
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering, compiler_fence, fence};
+use core::sync::atomic::{compiler_fence, fence};
+
 use core::task::{Context, Poll};
+use portable_atomic::{AtomicBool, AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{Peri, PeripheralType, peripherals};
 
-/// The controller's register block.
-const DMAC: usize = 0x4480_2000;
-/// Its channels.
+/// The controller's register block, and its channels.
+#[cfg(pic32cm_sg)]
+const DMAC_BASE: usize = 0x4480_2000;
+#[cfg(pic32cm_sg)]
 const CHANNELS: usize = 8;
+#[cfg(pic32cm_pl)]
+const DMAC_BASE: usize = 0x4100_6000;
+#[cfg(pic32cm_pl)]
+const CHANNELS: usize = 2;
 
 const CTRL: usize = 0x00;
 const CTRL_SWRST: u16 = 1 << 0;
@@ -78,10 +87,13 @@ const INT_TCMPL: u8 = 1 << 1;
 const INT_SUSP: u8 = 1 << 2;
 const INT_ALL: u8 = INT_TERR | INT_TCMPL | INT_SUSP;
 
-/// MCLK's CLKMSK0: the DMAC's AHB clock is bit 28, its APB clock bit 29
-/// (table 28-2).
-const MCLK_CLKMSK0: usize = 0x4400_A000 + 0x3C;
-const MCLK_DMAC: u32 = 0b11 << 28;
+/// The DMAC's bus clocks, as MCLK registers and their bits. The SG00's
+/// are CLKMSK0's bits 28 (AHB) and 29 (APB) (table 28-2), on at reset; the
+/// PL10's AHBMASK bit 7, on at reset, and APBBMASK bit 3, off.
+#[cfg(pic32cm_sg)]
+const MCLK_DMAC: [(usize, u32); 1] = [(0x4400_A000 + 0x3C, 0b11 << 28)];
+#[cfg(pic32cm_pl)]
+const MCLK_DMAC: [(usize, u32); 2] = [(0x4000_0800 + 0x10, 1 << 7), (0x4000_0800 + 0x18, 1 << 3)];
 
 /// BTCTRL: the descriptor is valid; at the block's end, disable the channel
 /// if it was the last and set TCMPL; the beat size; the addresses that step.
@@ -192,19 +204,30 @@ impl Word for u32 {}
 pub struct Request(u8);
 
 impl Request {
-    /// SERCOM `n`'s receive request (data ready to read), `n` 0 to 5.
+    /// SERCOM `n`'s receive request (data ready to read), `n` 0 to 5 on the
+    /// SG00, 0 or 1 on the PL10.
     ///
     /// # Panics
     ///
-    /// If `n` is over 5: at compile time in a `const`.
+    /// If there is no SERCOM `n`: at compile time in a `const`.
     #[must_use]
     pub const fn sercom_rx(n: u8) -> Self {
-        assert!(n < 6, "SERCOM0 to SERCOM5");
-        // SERCOM0-3 on 4-11, SERCOM4 and 5 on 24-27 (table 7-1).
-        Self(if n < 4 { 4 + 2 * n } else { 24 + 2 * (n - 4) })
+        #[cfg(pic32cm_sg)]
+        {
+            assert!(n < 6, "SERCOM0 to SERCOM5");
+            // SERCOM0-3 on 4-11, SERCOM4 and 5 on 24-27 (table 7-1).
+            Self(if n < 4 { 4 + 2 * n } else { 24 + 2 * (n - 4) })
+        }
+        #[cfg(pic32cm_pl)]
+        {
+            assert!(n < 2, "SERCOM0 or SERCOM1");
+            // SERCOM0 on 1-2, SERCOM1 on 3-4.
+            Self(1 + 2 * n)
+        }
     }
 
-    /// SERCOM `n`'s transmit request (room to write), `n` 0 to 5.
+    /// SERCOM `n`'s transmit request (room to write), as
+    /// [`sercom_rx`](Self::sercom_rx).
     ///
     /// # Panics
     ///
@@ -293,28 +316,31 @@ macro_rules! channels {
 }
 
 channels! {
-    DMA_CH0 = 0; DMA_CH1 = 1; DMA_CH2 = 2; DMA_CH3 = 3;
-    DMA_CH4 = 4; DMA_CH5 = 5; DMA_CH6 = 6; DMA_CH7 = 7;
+    DMA_CH0 = 0; DMA_CH1 = 1;
+}
+#[cfg(pic32cm_sg)]
+channels! {
+    DMA_CH2 = 2; DMA_CH3 = 3; DMA_CH4 = 4; DMA_CH5 = 5; DMA_CH6 = 6; DMA_CH7 = 7;
 }
 
 fn read8(offset: usize) -> u8 {
     // SAFETY: a DMAC register, read as a byte.
-    unsafe { read_volatile((DMAC + offset) as *const u8) }
+    unsafe { read_volatile((DMAC_BASE + offset) as *const u8) }
 }
 
 fn write8(offset: usize, value: u8) {
     // SAFETY: a DMAC register, written as a byte.
-    unsafe { write_volatile((DMAC + offset) as *mut u8, value) }
+    unsafe { write_volatile((DMAC_BASE + offset) as *mut u8, value) }
 }
 
 fn read16(offset: usize) -> u16 {
     // SAFETY: a DMAC register, read as a halfword.
-    unsafe { read_volatile((DMAC + offset) as *const u16) }
+    unsafe { read_volatile((DMAC_BASE + offset) as *const u16) }
 }
 
 fn write16(offset: usize, value: u16) {
     // SAFETY: a DMAC register, written as a halfword.
-    unsafe { write_volatile((DMAC + offset) as *mut u16, value) }
+    unsafe { write_volatile((DMAC_BASE + offset) as *mut u16, value) }
 }
 
 fn read32(address: usize) -> u32 {
@@ -344,17 +370,25 @@ fn start_controller() {
     if STARTED.swap(true, Ordering::AcqRel) {
         return;
     }
-    critical_section::with(|_| write32(MCLK_CLKMSK0, read32(MCLK_CLKMSK0) | MCLK_DMAC));
+    critical_section::with(|_| {
+        for (register, bits) in MCLK_DMAC {
+            write32(register, read32(register) | bits);
+        }
+    });
     // From reset, whatever ran before left it: BASEADDR and WRBADDR take
     // writes only while it is disabled.
     write16(CTRL, 0);
     while read16(CTRL) & CTRL_DMAENABLE != 0 {}
     write16(CTRL, CTRL_SWRST);
     while read16(CTRL) & CTRL_SWRST != 0 {}
-    write32(DMAC + BASEADDR, FIRST.address(0));
-    write32(DMAC + WRBADDR, WRITE_BACK.address(0));
+    write32(DMAC_BASE + BASEADDR, FIRST.address(0));
+    write32(DMAC_BASE + WRBADDR, WRITE_BACK.address(0));
     write16(CTRL, CTRL_DMAENABLE | CTRL_LVLEN_ALL);
-    for line in [Interrupt::DMAC_TCMPL0, Interrupt::DMAC_TCMPL1, Interrupt::DMAC_TCMPL2, Interrupt::DMAC_TCMPL3, Interrupt::DMAC_TCMPL4] {
+    #[cfg(pic32cm_sg)]
+    let lines = [Interrupt::DMAC_TCMPL0, Interrupt::DMAC_TCMPL1, Interrupt::DMAC_TCMPL2, Interrupt::DMAC_TCMPL3, Interrupt::DMAC_TCMPL4];
+    #[cfg(pic32cm_pl)]
+    let lines = [Interrupt::DMAC];
+    for line in lines {
         line.unpend();
         // SAFETY: the handlers touch only the channels' interrupt enables,
         // flags and wakers.
@@ -367,7 +401,7 @@ fn start_controller() {
 /// complete is counted and cleared instead, its interrupts left on.
 #[cfg_attr(not(feature = "rt"), expect(dead_code, reason = "called from the vectors `rt` defines"))]
 fn on_interrupt(channels: core::ops::Range<usize>) {
-    let pending = read32(DMAC + INTSTATUS);
+    let pending = read32(DMAC_BASE + INTSTATUS);
     for number in channels {
         if pending & (1 << number) == 0 {
             continue;
@@ -414,7 +448,10 @@ macro_rules! vectors {
     };
 }
 
+#[cfg(pic32cm_sg)]
 vectors!(DMAC_TCMPL0 = 0..1, DMAC_TCMPL1 = 1..2, DMAC_TCMPL2 = 2..3, DMAC_TCMPL3 = 3..4, DMAC_TCMPL4 = 4..CHANNELS);
+#[cfg(pic32cm_pl)]
+vectors!(DMAC = 0..CHANNELS);
 
 /// Stops channel `number` and resets it: a channel being disabled finishes
 /// its beat in flight and writes its descriptor back first, ENABLE reading 1
@@ -448,7 +485,7 @@ fn position(number: usize) -> (u32, u16) {
         // SAFETY: the controller's write-back entry for the channel, read
         // as it may be changing.
         let next = unsafe { read_volatile(addr_of!((*entry).descaddr)) };
-        let active = read32(DMAC + ACTIVE);
+        let active = read32(DMAC_BASE + ACTIVE);
         // SAFETY: as above.
         let written_back = unsafe { read_volatile(addr_of!((*entry).btcnt)) };
         // SAFETY: as above.
@@ -651,11 +688,11 @@ impl<'a> Transfer<'a> {
         // the channel reads them.
         fence(Ordering::SeqCst);
         with_channel(number, || {
-            write32(DMAC + CHCTRLB, (u32::from(setup.trigger) << CHCTRLB_TRIGSRC_SHIFT) | (trigger_action << CHCTRLB_TRIGACT_SHIFT));
+            write32(DMAC_BASE + CHCTRLB, (u32::from(setup.trigger) << CHCTRLB_TRIGSRC_SHIFT) | (trigger_action << CHCTRLB_TRIGACT_SHIFT));
             write8(CHINTENSET, INT_ALL);
             write8(CHCTRLA, CHCTRLA_ENABLE);
             if software {
-                write32(DMAC + SWTRIGCTRL, read32(DMAC + SWTRIGCTRL) | 1 << number);
+                write32(DMAC_BASE + SWTRIGCTRL, read32(DMAC_BASE + SWTRIGCTRL) | 1 << number);
             }
         });
         Self { channel, _buffers: PhantomData }
@@ -802,7 +839,7 @@ impl<'a> ReadableRing<'a> {
         self.read = 0;
         fence(Ordering::SeqCst);
         with_channel(number, || {
-            write32(DMAC + CHCTRLB, (u32::from(self.request.0) << CHCTRLB_TRIGSRC_SHIFT) | (TRIGACT_BEAT << CHCTRLB_TRIGACT_SHIFT));
+            write32(DMAC_BASE + CHCTRLB, (u32::from(self.request.0) << CHCTRLB_TRIGSRC_SHIFT) | (TRIGACT_BEAT << CHCTRLB_TRIGACT_SHIFT));
             write8(CHINTENSET, INT_ALL);
             write8(CHCTRLA, CHCTRLA_ENABLE);
         });
@@ -923,12 +960,23 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(pic32cm_sg)]
     fn sercom_requests() {
         // Table 7-1 / the ATDF's DMAC_ID_RX and _TX.
         assert_eq!(Request::sercom_rx(0).index(), 4);
         assert_eq!(Request::sercom_tx(3).index(), 11);
         assert_eq!(Request::sercom_rx(4).index(), 24);
         assert_eq!(Request::sercom_tx(5).index(), 27);
+    }
+
+    #[test]
+    #[cfg(pic32cm_pl)]
+    fn sercom_requests() {
+        // The ATDF's DMAC_ID_RX and _TX.
+        assert_eq!(Request::sercom_rx(0).index(), 1);
+        assert_eq!(Request::sercom_tx(0).index(), 2);
+        assert_eq!(Request::sercom_rx(1).index(), 3);
+        assert_eq!(Request::sercom_tx(1).index(), 4);
     }
 
     #[test]

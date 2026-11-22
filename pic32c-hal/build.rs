@@ -14,7 +14,8 @@
 //!   MUSB core).
 //! - `pic32cm_pl`: the PIC32CM PL10 (Cortex-M0+). `sercom_v1` (no FIFO,
 //!   16-bit DATA, one interrupt line per SERCOM, bus clocks off at reset),
-//!   `port_v1` (no open drain, 1-bit slew).
+//!   `port_v1` (no open drain, 1-bit slew), `dma_u2223` (the SG00's DMAC,
+//!   with 2 channels).
 //! - `pic32cm_sg`: the PIC32CM SG00 (Cortex-M23). The PIC32CK's
 //!   `sercom_v6`, `port_v4`, `wdt_v2` and `mcan` (its `M_CAN` is 3.3.0, in a
 //!   wrapper), and `dma_u2223` (the SAM D21/C21 kind of DMAC); its flash
@@ -80,7 +81,7 @@ const PIC32CK: &[&str] = &[
     "usb_hs",
 ];
 
-const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1"];
+const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_u2223"];
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "wdt_v2", "mcan"];
 

@@ -62,6 +62,9 @@ embassy_hal_internal::peripherals!(
     PB11,
     SERCOM0,
     SERCOM1,
+    // The DMAC's channels.
+    DMA_CH0,
+    DMA_CH1,
     // The time driver's counter, if on, is its own (TC0 and TC1 both when
     // it pairs them).
     #[cfg(not(any(time_driver = "tc0", time_driver = "tc0_tc1")))]

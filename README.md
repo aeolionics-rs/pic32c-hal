@@ -186,19 +186,26 @@ The plan is to publish to crates.io once these have stabilized.
   `thumbv6m-none-eabi`): `clocks` (OSCHF 1-24 MHz, four generators),
   `gpio` (no open drain; a 1-bit slew limit), `uart` blocking and
   `BufferedUart` (SERCOM v1: no FIFO, 16-bit DATA, one vector per SERCOM,
-  bus clocks turned on by the driver; no DMA yet), and the time driver on
+  bus clocks turned on by the driver), `uart`'s DMA and the ring receiver,
+  `dma` on its DMAC (the SG00's IP and driver, with two channels and one
+  vector), and the time driver on
   TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (`blink` on
   TC0+TC1 and on TC0 alone: ticks 1,002-1,003 ms apart for a minute). Atomics go through
   `portable-atomic`. The other modules are CK only for now.
 - `examples/pic32cm-pl10-curiosity-nano`: board support for the PL10
   Curiosity Nano (EV10P22A; VCOM on SERCOM1 PB00/PB01, LED0 PB02), examples
-  `blink` (24 MHz, LED, a line a second with the time) and `uart_echo`
-  (`BufferedUart`). Build with `cargo build --release -p
+  `blink` (24 MHz, LED, a line a second with the time), `uart_echo`
+  (`BufferedUart`), and `dma`, `uart_dma` and `uart_ring` (the SG00 board's,
+  sized for 8 KB of SRAM). Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
-  reset this chip). Both pass on the board: 1002 ms a tick, 8000 bytes
-  echoed intact at 115,200 baud.
+  reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
+  echoed intact at 115,200 baud; `dma`'s copies (1.5 KiB of words at
+  11 MB/s, both channels at once, a copy dropped part way, a UART line
+  paced by SERCOM1), 100 blocks echoed by DMA, and 200,000 bytes through a
+  1 KiB ring at 115,200 and at 460,800 (paced), with an `Overrun` when the
+  reader falls a ring behind.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -318,10 +325,7 @@ PIC32CM PL10:
   UART's are.
 - Watchdog and RTC: the CK's IP families, with small differences.
 - External interrupts on its EIC (U2254).
-- New drivers: flash (NVMCTRL), the ADC. Its DMAC is the SG00's IP
-  (`dma_u2223`, two channels), so the SG00's `dma` with its channel count,
-  vector and trigger table; UART DMA and the ring receiver then need
-  SERCOM v1's paths.
+- New drivers: flash (NVMCTRL), the ADC.
 - Unique ID, and a software open-drain output.
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.

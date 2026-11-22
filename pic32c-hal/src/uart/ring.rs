@@ -19,7 +19,7 @@
 use core::future::poll_fn;
 use core::task::Poll;
 
-use super::{BUFOVF, CTRLC, DATA, Error, FERR, FIFOEN, INTENSET, PERR, RXC, STATUS, State, UartRx, fifo_byte, read16, read32, write8, write16};
+use super::{BUFOVF, DATA, Error, FERR, INTENSET, PERR, RXC, STATUS, State, UartRx, fifo_byte, read16, write8, write16};
 use crate::dma::{ReadableRing, Request};
 use crate::mode::Async;
 
@@ -55,9 +55,7 @@ impl RingBufferedUartRx<'_> {
         if self.ring.is_running() {
             return;
         }
-        if read32(self.base, CTRLC) & FIFOEN != 0 {
-            fifo_byte(self.base, self.state).await;
-        }
+        fifo_byte(self.base, self.state).await;
         self.ring.start();
     }
 

@@ -23,17 +23,32 @@ name = "uart_echo"
 test = false
 bench = false
 
+[[example]]
+name = "dma"
+test = false
+bench = false
+
+[[example]]
+name = "uart_dma"
+test = false
+bench = false
+
+[[example]]
+name = "uart_ring"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
 critical-section = "1.2.0"
+embassy-time = "0.5.1"
 pic32c-hal = { path = "../../pic32c-hal", features = ["pic32cm6408pl10048", "rt", "time-driver", "unstable-pac"] }
 
 # What the examples use.
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
-embassy-time = "0.5.1"
 panic-halt = "1.0.0"
 static_cell = "2.1.1"
 
