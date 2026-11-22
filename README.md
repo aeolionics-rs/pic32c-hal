@@ -272,7 +272,10 @@ The plan is to publish to crates.io once these have stabilized.
   1,000/s error-active with no errors, and `can_ping` against a CoreMP135
   running `can_echo.py` passed 10 rounds (440 frames each way: 11- and
   29-bit IDs, data and remote, 0-8 bytes, eight at once), error-active at
-  0/0.
+  0/0; and CAN1 as FD at 500 kbit/s and 2 Mbit/s: `can_ping` built with
+  `CAN_FD=1` passed 10 rounds in 957 ms against the CoreMP135 (1,080 frames
+  each way, FD ones of every length to 64 bytes with and without bit-rate
+  switching, eight 64-byte ones at once), error-active at 0/0.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -367,8 +370,6 @@ PIC32CM PL10:
 
 PIC32CM SG00:
 
-- CAN FD on a real bus, and CAN1 (J503) on one: only CAN0's classic
-  frames have run on a bus; FD has run in internal loopback.
 - The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
   ADC input for it and the CAL OTP no factory readings (the CK's
   FCCFG69-71), so `adc` offers neither yet.
