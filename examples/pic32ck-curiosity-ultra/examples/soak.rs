@@ -29,7 +29,9 @@
 //! speed's controller registers, how late a 1 ms timer fires (the
 //! executor's latency) and the Ethernet controller's receive errors; it
 //! goes out a byte at a time as the UART has room, since at 115200 baud it
-//! takes about 50 ms. `tools/host/soak.py` drives
+//! takes about 50 ms. A panic or hard fault goes there too, then a reset;
+//! so does the stack, if the watchdog goes 2 s unfed (the executor stuck),
+//! 2 s before it resets the chip. `tools/host/soak.py` drives
 //! the USB ports and the network; something on the CAN bus has to send the
 //! frames to echo.
 
@@ -62,11 +64,10 @@ use embassy_usb::class::cdc_acm::device::{self as cdc_acm, CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, Handler, UsbDevice, UsbDeviceSpeed};
 use embedded_io_async::Write as _;
-use panic_halt as _;
 use pic32c_hal::can::Mode;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
 use pic32c_hal::gpio::{Level, Output};
-use pic32c_hal::wdt::ResetCause;
+use pic32c_hal::wdt::{self, Period, ResetCause, Watchdog};
 use pic32c_hal::{bind_interrupts, uid, usb, usbhs};
 use pic32ck_curiosity_ultra::uart::Uart;
 use pic32ck_curiosity_ultra::{clocks, time};
@@ -83,10 +84,76 @@ bind_interrupts!(struct Irqs {
     USB_TRCPT0 => usb::InterruptHandler;
     USB_TRCPT1 => usb::InterruptHandler;
     USBHS => usbhs::InterruptHandler;
+    WDT => StallReport, wdt::InterruptHandler;
 });
 
 type FsDriver = usb::Driver<'static>;
 type HsDriver = usbhs::Driver<'static>;
+
+/// A panic's message over the virtual COM port, then a reset, so the soak
+/// goes on and the log shows why it started again.
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    let _ = writeln!(Uart, "\npanic: {info}");
+    Uart.flush();
+    cortex_m::peripheral::SCB::sys_reset()
+}
+
+/// A hard fault's registers over the virtual COM port, then a reset.
+#[cortex_m_rt::exception]
+unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
+    // SAFETY: reads of the System Control Block's fault status registers.
+    let (cfsr, hfsr, mmfar, bfar) = unsafe {
+        (
+            core::ptr::read_volatile(0xE000_ED28 as *const u32),
+            core::ptr::read_volatile(0xE000_ED2C as *const u32),
+            core::ptr::read_volatile(0xE000_ED34 as *const u32),
+            core::ptr::read_volatile(0xE000_ED38 as *const u32),
+        )
+    };
+    let _ = writeln!(
+        Uart,
+        "\nhard fault: pc {:#010x} lr {:#010x} xpsr {:#010x} cfsr {cfsr:#010x} hfsr {hfsr:#010x} mmfar {mmfar:#010x} bfar {bfar:#010x}",
+        frame.pc(),
+        frame.lr(),
+        frame.xpsr()
+    );
+    Uart.flush();
+    cortex_m::peripheral::SCB::sys_reset()
+}
+
+/// The watchdog: reset unless fed within 4 s; its early warning, at 2 s,
+/// prints the stack where the executor stopped, to tell a spin from a wait.
+const WATCHDOG: Period = Period::Cycles4096;
+const WATCHDOG_WARNING: Period = Period::Cycles2048;
+
+/// The early warning's report: the main stack from where the interrupt
+/// came in (the interrupted code's frame, return addresses above it), for
+/// `addr2line`.
+struct StallReport;
+
+impl pic32c_hal::interrupt::typelevel::Handler<pic32c_hal::interrupt::typelevel::WDT> for StallReport {
+    unsafe fn on_interrupt() {
+        let sp = cortex_m::register::msp::read();
+        let _ = write!(Uart, "\nwatchdog warning: no feed for 2 s; msp {sp:#010x}; stack");
+        for i in 0..128 {
+            // SAFETY: the main stack, in RAM above the current pointer.
+            let word = unsafe { core::ptr::read_volatile((sp as *const u32).add(i)) };
+            let _ = write!(Uart, " {word:08x}");
+        }
+        let _ = writeln!(Uart);
+        Uart.flush();
+    }
+}
+
+/// Feeds the watchdog: a task like the others, so it stops when they do.
+#[embassy_executor::task]
+async fn feeder(mut watchdog: Watchdog<'static>) -> ! {
+    loop {
+        watchdog.feed();
+        Timer::after_millis(500).await;
+    }
+}
 
 /// The seconds between counter lines.
 const REPORT_SECS: u64 = 10;
@@ -577,6 +644,10 @@ async fn main(spawner: Spawner) {
     let mut log = Uart::init(p.SERCOM5, p.PA24, p.PA25);
     let mut led = Output::new(p.PD20, Level::High);
     let _ = writeln!(log, "\npic32ck-curiosity-ultra soak: reset cause {:#06x}", ResetCause::read().0);
+    let mut watchdog = Watchdog::new(p.WDT, Irqs);
+    if watchdog.start(WATCHDOG, Some(WATCHDOG_WARNING)).is_ok() {
+        spawner.spawn(feeder(watchdog).unwrap());
+    }
 
     // CAN0 first: its pins and clock don't wait on anything.
     match can0::open(p.CAN0, can0::CLASSIC_RATE, Mode::Normal, p.PB16, p.PB17) {
