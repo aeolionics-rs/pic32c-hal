@@ -28,9 +28,9 @@ pub(crate) const EIC: usize = 0x4401_B000;
 #[cfg(all(feature = "pic32ck2051gc01144", feature = "exti"))]
 pub(crate) const EIC: usize = 0x4401_A000;
 
-/// The pin with only the NMI on it.
+// The pin with only the NMI on it.
 #[cfg(feature = "exti")]
-pub(crate) type NmiPin = peripherals::PD02;
+crate::exti::impl_nmi_pins!(PD02);
 
 // The vectors: the GC's are the SG's without the HSM's three.
 #[cfg(feature = "pic32ck2051sg01144")]

@@ -46,7 +46,7 @@ jobs:
             features: can-hal,eth,exti,time-driver,usb,usbhs
           - chip: pic32cm6408pl10048
             target: thumbv6m-none-eabi
-            features: time-driver
+            features: exti,time-driver
           - chip: pic32cm5112sg00100
             target: thumbv8m.base-none-eabi
             features: can-hal,exti,time-driver,usb

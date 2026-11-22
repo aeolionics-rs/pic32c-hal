@@ -192,7 +192,13 @@ The plan is to publish to crates.io once these have stabilized.
   narrower DATA, on generator 0 by default), `flash` (a driver of its own
   for its NVMCTRL, behind the FCW driver's API: 512-byte pages, 32-bit
   word writes, blocking and async on READY), `wdt` (the CK's driver: its
-  WDT moves SYNCBUSY.CLEAR, and its RSTC has its own reset causes), and
+  WDT moves SYNCBUSY.CLEAR, and its RSTC has its own reset causes),
+  `uid` (the signature row's 128-bit serial number, not a UUID), `rtc`
+  (the CK's driver over its own OSC32KCTRL layout; OSC32K for the internal
+  source; a system reset request clears its RTC, unlike the CK's and the
+  SG00's), `exti` (the CK's driver with one vector for all 16 lines and no
+  PINSTATE; NMI on PA01, PA07 or PA30; the internal pull doesn't hold
+  while the EIC has a pin, so it needs an external pull or a driver), and
   the time driver on TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (`blink` on
   TC0+TC1 and on TC0 alone: ticks 1,002-1,003 ms apart for a minute). Atomics go through
@@ -203,7 +209,8 @@ The plan is to publish to crates.io once these have stabilized.
   (`BufferedUart`), and `dma`, `uart_dma`, `uart_ring`, `spi` (on the
   board's SPI pins, SERCOM0 PA04/PA05/PA07, in loopback) and `i2c` (on its
   I2C pins, SERCOM0 PA00/PA01, with a sensor wired), `flash`,
-  `flash_async` and `watchdog`, the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
+  `flash_async`, `watchdog`, `uid`, `rtc` and `exti` (with PA08 jumpered
+  to PA09 and PA10 to PA11), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -221,7 +228,16 @@ The plan is to publish to crates.io once these have stabilized.
   misaligned and out-of-range requests refused); and `watchdog`: start,
   stop and refusals, fed at 100 ms (no warning) and 750 ms (a warning
   each period), then starved (a warning at 506 ms, a reset at about 1 s,
-  RCAUSE watchdog), then a system reset request (RCAUSE system).
+  RCAUSE watchdog), then a system reset request (RCAUSE system); `uid`;
+  `rtc`: the crystal refused as `NoCrystal` in 3.3 s (the board's crystal
+  isn't connected until two straps are cut and two pads bridged), then on
+  OSC32K 1.5 % off OSCHF over 10 s, the calendar through 29 February and a
+  new year, an alarm, and the RTC found cleared after a system reset; and
+  `exti`: on each jumper, rising, falling, either edge, high and low each
+  woken about 100 µs after the output moved, a level already met at once,
+  and 100 alternate edges, none missed; and on the one vector, two lines
+  rising together both woken, and one line's edge leaving the other's
+  wait alone.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -375,10 +391,10 @@ PIC32CK:
 
 PIC32CM PL10:
 
-- RTC: the CK's IP family, with small differences.
-- External interrupts on its EIC (U2254).
 - A new driver: the ADC.
-- Unique ID, and a software open-drain output.
+- A software open-drain output.
+- `rtc` from the crystal, and the NMI, on a board with the crystal and an
+  NMI pin wired (not yet run).
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.
 

@@ -26,9 +26,9 @@ pub(crate) const PORT: usize = 0x4480_0000;
 #[cfg(feature = "exti")]
 pub(crate) const EIC: usize = 0x4402_0000;
 
-/// The pin with only the NMI on it.
+// The pin with only the NMI on it.
 #[cfg(feature = "exti")]
-pub(crate) type NmiPin = peripherals::PD00;
+crate::exti::impl_nmi_pins!(PD00);
 
 embassy_hal_internal::interrupt_mod!(
     FCR,

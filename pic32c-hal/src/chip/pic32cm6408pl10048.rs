@@ -15,6 +15,10 @@ pub const FLASH_SIZE: usize = 64 << 10;
 /// PORT, on the IOBUS-free APB view.
 pub(crate) const PORT: usize = 0x4100_0000;
 
+/// The EIC.
+#[cfg(feature = "exti")]
+pub(crate) const EIC: usize = 0x4000_2800;
+
 embassy_hal_internal::interrupt_mod!(SYSTEM, WDT, RTC, EIC, NVMCTRL, DMAC, EVSYS, SERCOM0, SERCOM1, TC0, TC1, TC2, TCC0, ADC0, AC,);
 
 embassy_hal_internal::peripherals!(
@@ -64,6 +68,23 @@ embassy_hal_internal::peripherals!(
     SERCOM1,
     NVMCTRL,
     WDT,
+    RTC,
+    EXTINT0,
+    EXTINT1,
+    EXTINT2,
+    EXTINT3,
+    EXTINT4,
+    EXTINT5,
+    EXTINT6,
+    EXTINT7,
+    EXTINT8,
+    EXTINT9,
+    EXTINT10,
+    EXTINT11,
+    EXTINT12,
+    EXTINT13,
+    EXTINT14,
+    EXTINT15,
     // The DMAC's channels.
     DMA_CH0,
     DMA_CH1,
@@ -134,3 +155,72 @@ crate::sercom::impl_pads! {
     SERCOM0: PA10 pad 0 D ioset 0, PA00 pad 0 C ioset 0, PA04 pad 0 C ioset 0, PA11 pad 1 D ioset 0, PA01 pad 1 C ioset 0, PA05 pad 1 C ioset 0, PA08 pad 2 D ioset 0, PA31 pad 2 D ioset 0, PA02 pad 2 C ioset 0, PA06 pad 2 C ioset 0, PA09 pad 3 D ioset 0, PA03 pad 3 C ioset 0, PA07 pad 3 C ioset 0;
     SERCOM1: PA00 pad 0 D ioset 0, PA26 pad 0 D ioset 0, PB00 pad 0 D ioset 0, PA10 pad 0 C ioset 0, PA14 pad 0 C ioset 0, PA20 pad 0 C ioset 0, PA31 pad 0 C ioset 0, PA01 pad 1 D ioset 0, PA27 pad 1 D ioset 0, PB01 pad 1 D ioset 0, PA11 pad 1 C ioset 0, PA15 pad 1 C ioset 0, PA21 pad 1 C ioset 0, PA02 pad 2 D ioset 0, PA24 pad 2 D ioset 0, PB02 pad 2 D ioset 0, PA08 pad 2 C ioset 0, PA12 pad 2 C ioset 0, PA22 pad 2 C ioset 0, PA03 pad 3 D ioset 0, PA25 pad 3 D ioset 0, PB03 pad 3 D ioset 0, PA09 pad 3 C ioset 0, PA13 pad 3 C ioset 0, PA23 pad 3 C ioset 0;
 }
+
+// The EIC's lines, and each pin's, from the ATDF's EXTINT signals (all on
+// function A).
+#[cfg(feature = "exti")]
+crate::exti::impl_channels!(
+    EXTINT0 = 0,
+    EXTINT1 = 1,
+    EXTINT2 = 2,
+    EXTINT3 = 3,
+    EXTINT4 = 4,
+    EXTINT5 = 5,
+    EXTINT6 = 6,
+    EXTINT7 = 7,
+    EXTINT8 = 8,
+    EXTINT9 = 9,
+    EXTINT10 = 10,
+    EXTINT11 = 11,
+    EXTINT12 = 12,
+    EXTINT13 = 13,
+    EXTINT14 = 14,
+    EXTINT15 = 15
+);
+
+#[cfg(feature = "exti")]
+crate::exti::impl_exti_pins!(
+    PA00 = EXTINT0,
+    PA02 = EXTINT2,
+    PA03 = EXTINT3,
+    PA04 = EXTINT4,
+    PA05 = EXTINT5,
+    PA06 = EXTINT6,
+    PA08 = EXTINT8,
+    PA09 = EXTINT9,
+    PA10 = EXTINT10,
+    PA11 = EXTINT11,
+    PA12 = EXTINT12,
+    PA13 = EXTINT13,
+    PA14 = EXTINT14,
+    PA15 = EXTINT15,
+    PA16 = EXTINT0,
+    PA17 = EXTINT1,
+    PA18 = EXTINT2,
+    PA19 = EXTINT3,
+    PA20 = EXTINT4,
+    PA21 = EXTINT5,
+    PA22 = EXTINT6,
+    PA23 = EXTINT7,
+    PA24 = EXTINT8,
+    PA25 = EXTINT9,
+    PA26 = EXTINT10,
+    PA27 = EXTINT11,
+    PA28 = EXTINT12,
+    PA29 = EXTINT13,
+    PA31 = EXTINT15,
+    PB00 = EXTINT0,
+    PB01 = EXTINT1,
+    PB02 = EXTINT2,
+    PB03 = EXTINT3,
+    PB04 = EXTINT4,
+    PB05 = EXTINT5,
+    PB08 = EXTINT8,
+    PB09 = EXTINT9,
+    PB10 = EXTINT10,
+    PB11 = EXTINT11,
+);
+
+// The NMI's pins (function A).
+#[cfg(feature = "exti")]
+crate::exti::impl_nmi_pins!(PA01, PA07, PA30);

@@ -3,17 +3,20 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The real-time counter (RTC; DS60001795 chapter 25 on the PIC32CK,
-//! DS60001921 on the PIC32CM SG00, the same IP) as a clock and calendar,
-//! from the 32.768 kHz crystal (XOSC32K; OSC32KCTRL) or the internal
-//! ultra-low-power oscillator, and an alarm.
+//! DS60001921 on the PIC32CM SG00 and DS40002667 on the PL10, the same IP)
+//! as a clock and calendar, from the 32.768 kHz crystal (XOSC32K;
+//! OSC32KCTRL, whose layout differs on the PL10) or an internal oscillator,
+//! and an alarm.
 //!
 //! The alarm's interrupt: bind [`InterruptHandler`] to `RTC` on the
-//! PIC32CK, to `RTC_CMP0` on the SG00 (whose RTC has four lines; ALARM0's
-//! flag comes on the compare one).
+//! PIC32CK and the PL10, to `RTC_CMP0` on the SG00 (whose RTC has four
+//! lines; ALARM0's flag comes on the compare one).
 //!
-//! The RTC and the crystal are in the backup domain: they keep running
-//! through every reset but power-on. So [`Rtc::new`] keeps the time if it
-//! finds the RTC already running as this driver sets it up
+//! On the PIC32CK and the SG00 the RTC and the crystal are in the backup
+//! domain: they keep running through every reset but power-on. (On the
+//! PL10 a system reset request clears the RTC and OSC32KCTRL, seen on the
+//! bench, so there the time is lost with it.) So [`Rtc::new`] keeps the
+//! time if it finds the RTC already running as this driver sets it up
 //! ([`Rtc::was_running`] says so), and a reboot doesn't lose the time set
 //! from SNTP, say. In clock mode the counter needs 1 Hz: the oscillator's
 //! 1.024 kHz output, divided by 1,024.
@@ -35,6 +38,8 @@ use crate::{Peri, interrupt, peripherals};
 const RTC: usize = 0x4401_8000;
 #[cfg(pic32cm_sg)]
 const RTC: usize = 0x4500_6000;
+#[cfg(pic32cm_pl)]
+const RTC: usize = 0x4000_2400;
 const CTRLA: usize = RTC;
 const INTENCLR: usize = RTC + 0x08;
 const INTENSET: usize = RTC + 0x0A;
@@ -62,8 +67,20 @@ const SYNC_ALL: u32 = 0xFFFF_FFFF;
 const OSC32KCTRL: usize = 0x4400_E000;
 #[cfg(pic32cm_sg)]
 const OSC32KCTRL: usize = 0x4500_8000;
+#[cfg(pic32cm_pl)]
+const OSC32KCTRL: usize = 0x4000_1400;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const OSC_STATUS: usize = OSC32KCTRL + 0x0C;
+/// CLKSELCTRL on the PIC32CK and the SG00, RTCCTRL on the PL10.
+#[cfg(any(pic32ck, pic32cm_sg))]
 const CLKSELCTRL: usize = OSC32KCTRL + 0x10;
+#[cfg(pic32cm_pl)]
+const OSC_STATUS: usize = OSC32KCTRL + 0x14;
+#[cfg(pic32cm_pl)]
+const CLKSELCTRL: usize = OSC32KCTRL + 0x18;
+/// XOSC32K, or XOSC32KCTRL on the PL10: the same place and the same
+/// ENABLE, XTALEN and ONDEMAND bits; the PL10's has a 2-bit start-up time
+/// (CSUT) and no gain.
 const XOSC32K: usize = OSC32KCTRL + 0x1C;
 const XOSC32KRDY: u32 = 1 << 0;
 const XOSC_ENABLE: u32 = 1 << 1;
@@ -72,30 +89,59 @@ const XOSC_XTALEN: u32 = 1 << 2;
 /// and STATUS.XOSC32KRDY wouldn't come before then.
 const XOSC_ONDEMAND: u32 = 1 << 7;
 const XOSC_STARTUP_SHIFT: u32 = 8;
+#[cfg(any(pic32ck, pic32cm_sg))]
+const XOSC_STARTUP_MAX: u8 = 10;
+#[cfg(pic32cm_pl)]
+const XOSC_STARTUP_MAX: u8 = 3;
 const XOSC_STARTUP_MASK: u32 = 0xF << XOSC_STARTUP_SHIFT;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const XOSC_CGM_SHIFT: u32 = 18;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const XOSC_CGM_MASK: u32 = 0xF << XOSC_CGM_SHIFT;
-/// RTCSEL: the 1.024 kHz outputs.
+/// None on the PL10.
+#[cfg(pic32cm_pl)]
+const XOSC_CGM_MASK: u32 = 0;
+/// RTCSEL: the 1.024 kHz outputs (the ultra-low-power oscillator's, or on
+/// the PL10 OSC32K's; the crystal's).
+#[cfg(any(pic32ck, pic32cm_sg))]
 const RTCSEL_MASK: u32 = 0b11;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const RTCSEL_ULP1K: u32 = 1;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const RTCSEL_XOSC1K: u32 = 3;
+#[cfg(pic32cm_pl)]
+const RTCSEL_MASK: u32 = 0b111;
+#[cfg(pic32cm_pl)]
+const RTCSEL_ULP1K: u32 = 2;
+#[cfg(pic32cm_pl)]
+const RTCSEL_XOSC1K: u32 = 4;
 
 /// MCLK's APB mask for the RTC: CLKMSK1 bit 12 (index 44) on the PIC32CK,
-/// CLKMSK0 bit 12 (index 12) on the SG00.
+/// CLKMSK0 bit 12 (index 12) on the SG00, APBAMASK bit 9 on the PL10.
 #[cfg(pic32ck)]
 const MCLK_CLKMSK: usize = 0x4401_2040;
 #[cfg(pic32cm_sg)]
 const MCLK_CLKMSK: usize = 0x4400_A03C;
+#[cfg(pic32cm_pl)]
+const MCLK_CLKMSK: usize = 0x4000_0814;
+#[cfg(any(pic32ck, pic32cm_sg))]
 const MCLK_RTC: u32 = 1 << 12;
+#[cfg(pic32cm_pl)]
+const MCLK_RTC: u32 = 1 << 9;
 
 /// The alarm's interrupt line.
-#[cfg(pic32ck)]
+#[cfg(any(pic32ck, pic32cm_pl))]
 type Line = interrupt::typelevel::RTC;
 #[cfg(pic32cm_sg)]
 type Line = interrupt::typelevel::RTC_CMP0;
 
-/// Polls of XOSC32KRDY: a few seconds, longer than any crystal's start-up.
+/// Polls of XOSC32KRDY: a few seconds at the chip's top speed, longer than
+/// any crystal's start-up (the PL10's longest CSUT is 2 s; its 24 MHz
+/// M0+ polls far slower than the others).
+#[cfg(any(pic32ck, pic32cm_sg))]
 const XOSC_POLLS: u32 = 200_000_000;
+#[cfg(pic32cm_pl)]
+const XOSC_POLLS: u32 = 8_000_000;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -104,9 +150,10 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Source {
     /// The 32.768 kHz crystal on XIN32/XOUT32 (PB02/PB03 on the PIC32CK,
-    /// PB01/PB02 on the SG00): tens of ppm.
+    /// PB01/PB02 on the SG00, PA24/PA25 on the PL10): tens of ppm.
     Crystal,
-    /// The internal ultra-low-power oscillator: percent, but no crystal.
+    /// The internal ultra-low-power oscillator (OSCULP32K; on the PL10,
+    /// OSC32K, the only internal one): percent, but no crystal.
     UltraLowPower,
 }
 
@@ -117,18 +164,22 @@ pub struct Config {
     pub source: Source,
     /// The crystal's start-up time, XOSC32K.STARTUP (0 to 10: 1 to 262,144
     /// cycles of the ULP oscillator; 5, 8,192 cycles, 250 ms, by default).
+    /// On the PL10, XOSC32KCTRL.CSUT (0 to 3: 1K, 16K, 32K or 64K cycles of
+    /// the crystal; 1, 0.5 s, by default).
     pub crystal_startup: u8,
     /// The crystal amplifier's gain, XOSC32K.CGM (0 to 15). The data sheet
-    /// gives the crystal's figures at 15, the default; it resets to 8.
+    /// gives the crystal's figures at 15, the default; it resets to 8. The
+    /// PL10 has none: ignored there.
     pub crystal_gain: u8,
 }
 
 impl Default for Config {
-    /// The crystal, 250 ms to start, at the highest gain.
+    /// The crystal, 250 ms to start (0.5 s on the PL10), at the highest
+    /// gain.
     fn default() -> Self {
         Self {
             source: Source::Crystal,
-            crystal_startup: 5,
+            crystal_startup: if cfg!(pic32cm_pl) { 1 } else { 5 },
             crystal_gain: 15,
         }
     }
@@ -300,7 +351,7 @@ impl core::fmt::Display for DateTime {
 }
 
 /// The RTC's interrupt handler: bind it with
-/// [`bind_interrupts!`](crate::bind_interrupts) to `RTC` (PIC32CK) or
+/// [`bind_interrupts!`](crate::bind_interrupts) to `RTC` (PIC32CK, PL10) or
 /// `RTC_CMP0` (SG00).
 pub struct InterruptHandler {
     _private: (),
@@ -444,7 +495,13 @@ fn start_crystal(startup: u8, gain: u8) -> Result<(), ConfigError> {
     let xosc = xosc & !(XOSC_STARTUP_MASK | XOSC_CGM_MASK | XOSC_ONDEMAND | XOSC_ENABLE);
     write32(XOSC32K, xosc);
     while read32(OSC_STATUS) & XOSC32KRDY != 0 {}
-    let fields = (u32::from(startup.min(10)) << XOSC_STARTUP_SHIFT) | (u32::from(gain.min(15)) << XOSC_CGM_SHIFT);
+    #[cfg(any(pic32ck, pic32cm_sg))]
+    let fields = (u32::from(startup.min(XOSC_STARTUP_MAX)) << XOSC_STARTUP_SHIFT) | (u32::from(gain.min(15)) << XOSC_CGM_SHIFT);
+    #[cfg(pic32cm_pl)]
+    let fields = {
+        let _ = gain;
+        u32::from(startup.min(XOSC_STARTUP_MAX)) << XOSC_STARTUP_SHIFT
+    };
     write32(XOSC32K, xosc | XOSC_XTALEN | fields);
     write32(XOSC32K, read32(XOSC32K) | XOSC_ENABLE);
     for _ in 0..XOSC_POLLS {

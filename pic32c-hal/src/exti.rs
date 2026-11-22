@@ -4,30 +4,31 @@
 
 //! Waiting on pin levels and edges through the External Interrupt
 //! Controller (EIC; DS60001795 chapter 30 on the PIC32CK, the same IP on the
-//! PIC32CM SG00): [`ExtiInput`].
+//! PIC32CM SG00 and the PL10): [`ExtiInput`].
 //!
 //! The EIC has 16 lines, `EXTINT0` to `EXTINT15`, each a singleton; each pin
 //! that has a line has exactly one ([`ExtiPin::Channel`], from the chip's
 //! pin multiplexing table: mostly the pin's number modulo 16, but not
-//! always), and [`ExtiInput::new`] takes the pin and its line. One pin has
-//! only the NMI, which [`Nmi`] drives: PD02 on the PIC32CK, PD00 on the
-//! SG00.
+//! always), and [`ExtiInput::new`] takes the pin and its line. [`Nmi`]
+//! drives the NMI, on its pin ([`NmiPin`]): PD02 on the PIC32CK, PD00 on the
+//! SG00, any of PA01, PA07 and PA30 on the PL10.
 //!
 //! Edges are detected asynchronously and levels without the filter, so the
 //! EIC needs no clock. Its sense settings can only change while it's
 //! disabled, so each wait disables it for a moment to set its line, which
 //! can drop another line's edge in that moment.
 //!
-//! With feature `rt` the HAL defines the 16 vectors (`EIC_EXTINT_0` to
-//! `_15` on the PIC32CK, `EIC_EXTINT0` to `15` on the SG00). On the PIC32CK
-//! SG the EIC, like PORT, has a Secure view, which this module uses
-//! (`EIC_SEC`, `0x4401_B000`); the GC has only `0x4401_A000`, and the SG00
-//! only `0x4402_0000`.
+//! With feature `rt` the HAL defines the EIC's vectors: 16 (`EIC_EXTINT_0`
+//! to `_15` on the PIC32CK, `EIC_EXTINT0` to `15` on the SG00), or on the
+//! PL10 its one, `EIC`, for all the lines. On the PIC32CK SG the EIC, like
+//! PORT, has a Secure view, which this module uses (`EIC_SEC`,
+//! `0x4401_B000`); the GC has only `0x4401_A000`, the SG00 only
+//! `0x4402_0000` and the PL10 `0x4000_2800`.
 
 use core::future::poll_fn;
 use core::ptr::{read_volatile, write_volatile};
-use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
+use portable_atomic::{AtomicU16, AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -44,11 +45,13 @@ const INTENSET: usize = 0x10;
 const INTFLAG: usize = 0x14;
 const ASYNCH: usize = 0x18;
 const CONFIG: usize = 0x1C;
+/// None on the PL10.
+#[cfg(not(pic32cm_pl))]
 const PINSTATE: usize = 0x38;
 
 const ENABLE: u8 = 1 << 1;
-/// CKSEL: `CLK_ULP32K`, for whatever would need a clock (nothing this module
-/// sets).
+/// CKSEL: `CLK_ULP32K` (`CLK_OSC32K` on the PL10), for whatever would need
+/// a clock (nothing this module sets).
 const CKSEL_ULP32K: u8 = 1 << 4;
 const SYNC_ENABLE: u32 = 1 << 1;
 
@@ -105,6 +108,7 @@ fn configure(line: usize, sense: Sense) {
 }
 
 /// One line's interrupt: masks it, notes it fired, wakes its waiter.
+#[cfg_attr(pic32cm_pl, allow(dead_code, reason = "the PL10's one vector takes every line at once"))]
 fn on_interrupt(line: usize) {
     let bit = 1 << line;
     if read32(INTFLAG) & bit != 0 {
@@ -116,6 +120,7 @@ fn on_interrupt(line: usize) {
     }
 }
 
+#[cfg(not(pic32cm_pl))]
 macro_rules! vectors {
     ($($vector:ident = $line:literal),*) => {
         $(
@@ -150,6 +155,30 @@ vectors!(
     EIC_EXTINT_14 = 14,
     EIC_EXTINT_15 = 15
 );
+/// The PL10's one vector, for every line: each enabled line that fired is
+/// masked, noted and woken.
+#[cfg(all(pic32cm_pl, feature = "rt"))]
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+unsafe extern "C" fn EIC() {
+    let fired = read32(INTFLAG) & read32(INTENSET) & 0xFFFF;
+    if fired != 0 {
+        write32(INTENCLR, fired);
+        write32(INTFLAG, fired);
+        // 16 lines: the mask above keeps it to them.
+        FIRED.fetch_or(fired as u16, Ordering::AcqRel);
+        for (line, waker) in WAKERS.iter().enumerate() {
+            if fired & (1 << line) != 0 {
+                waker.wake();
+            }
+        }
+    }
+}
+
+/// Each line's vector: the one on the PL10.
+#[cfg(pic32cm_pl)]
+const INTERRUPTS: [Interrupt; LINES] = [Interrupt::EIC; LINES];
+
 #[cfg(pic32cm_sg)]
 vectors!(
     EIC_EXTINT0 = 0,
@@ -218,7 +247,10 @@ pub struct ExtiInput<'d> {
 
 impl<'d> ExtiInput<'d> {
     /// `pin`, on its EIC line `channel`, with `pull`, which holds while the
-    /// EIC has the pin (the EIC only reads it).
+    /// EIC has the pin (the EIC only reads it) on the PIC32CK and the SG00.
+    /// On the PL10 it doesn't: a peripheral function takes the pin from
+    /// PORT, pull and all (seen on the bench), so the pin needs an external
+    /// pull, or something driving it.
     #[allow(clippy::needless_pass_by_value, reason = "the line is the input's for 'd")]
     pub fn new<P: ExtiPin>(pin: Peri<'d, P>, channel: Peri<'d, P::Channel>, pull: Pull) -> Self {
         let line = channel.line();
@@ -256,6 +288,8 @@ impl<'d> ExtiInput<'d> {
     /// The EIC's PINSTATE for the line. It follows the pin only while the
     /// line samples with a clock (synchronous edges, the filter or the
     /// debouncer), none of which this module uses, so it reads low here.
+    /// The PL10 has no PINSTATE.
+    #[cfg(not(pic32cm_pl))]
     #[must_use]
     pub fn eic_level(&self) -> Level {
         (read32(PINSTATE) & (1 << self.line) != 0).into()
@@ -304,6 +338,8 @@ impl Drop for ExtiInput<'_> {
     fn drop(&mut self) {
         write32(INTENCLR, 1 << self.line);
         configure(self.line, Sense::None);
+        // On the PL10 the vector is every line's: masking the line is enough.
+        #[cfg(not(pic32cm_pl))]
         INTERRUPTS[self.line].disable();
     }
 }
@@ -355,6 +391,19 @@ mod embedded_hal_traits {
     }
 }
 
+/// A pin the NMI can be on.
+pub trait NmiPin: Pin {}
+
+macro_rules! impl_nmi_pins {
+    ($($pin:ident),* $(,)?) => {
+        $(
+            impl $crate::exti::NmiPin for $crate::peripherals::$pin {}
+        )*
+    };
+}
+
+pub(crate) use impl_nmi_pins;
+
 /// What arms the NMI (NMICTRL.NMISENSE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -400,8 +449,8 @@ pub fn on_nmi() {
 }
 
 /// The non-maskable interrupt on its pin (PD02 on the PIC32CK, SW1 on the
-/// Curiosity Ultra boards; PD00 on the SG00),
-/// armed for one firing at a time.
+/// Curiosity Ultra boards; PD00 on the SG00; PA01, PA07 or PA30 on the
+/// PL10), armed for one firing at a time.
 pub struct Nmi<'d> {
     _pin: Flex<'d>,
 }
@@ -409,7 +458,7 @@ pub struct Nmi<'d> {
 impl<'d> Nmi<'d> {
     /// The NMI on `pin`, with `pull`, disarmed.
     #[must_use]
-    pub fn new(pin: Peri<'d, crate::chip::NmiPin>, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl NmiPin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
         pin.set_as_function_keeping_input(Function::A);

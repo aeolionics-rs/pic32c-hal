@@ -107,7 +107,6 @@ pub mod time;
 #[cfg(trng)]
 pub mod trng;
 pub mod uart;
-#[cfg(any(pic32ck, pic32cm_sg))]
 pub mod uid;
 #[cfg(all(feature = "usb", usb_fs))]
 pub mod usb;
