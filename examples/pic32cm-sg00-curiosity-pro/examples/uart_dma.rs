@@ -8,7 +8,8 @@
 //! and writes each back as one transfer paced by its transmit request. Send
 //! it a block at a time, each after the last one's echo: while it writes a
 //! block it reads nothing, so a stream overruns the SERCOM's 16-byte FIFO
-//! (`uart_ring` takes a stream). LED0 toggles with each block. 115,200
+//! (`uart_ring` takes a stream): `tools/host/uart_dma_test.py`
+//! does. LED0 toggles with each block. 115,200
 //! baud unless `UART_BAUD` says otherwise when building.
 
 #![no_std]

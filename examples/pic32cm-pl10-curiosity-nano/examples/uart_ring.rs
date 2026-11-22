@@ -5,8 +5,8 @@
 //! `pic32c-hal`'s `RingBufferedUartRx` on the virtual COM port (SERCOM1,
 //! PB00/PB01): the receive DMA channel fills a 1 KiB ring continuously, its
 //! two halves linked to each other, and the transmit channel writes the
-//! echo. The host drives it, as the SG00 board's `uart_ring`
-//! (`ring_check.py`):
+//! echo. The host drives it (`tools/host/uart_ring_test.py`), as the SG00
+//! board's `uart_ring`:
 //!
 //! 1. Overrun: it waits for a `G`, says `pause`, and reads nothing for
 //!    500 ms, in which the host sends 4 KiB; the first read must say

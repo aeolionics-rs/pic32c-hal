@@ -2,7 +2,8 @@ Host-side test drivers
 ======================
 
 Scripts that run on the host against the bench programs in
-`examples/pic32ck-curiosity-ultra`. Python 3; the serial ones need pyserial
+`examples/pic32ck-curiosity-ultra` (and, where they say so, the SG00 and
+PL10 boards' examples). Python 3; the serial ones need pyserial
 (`uvx --with pyserial python vcom.py ...`, or `pip install pyserial`).
 
 Over the network (HOST is a board's address or mDNS name, CERT the bench
@@ -27,6 +28,12 @@ Over serial (PORT is the device, e.g. `/dev/ttyACM0` or `/dev/cu.usbmodem…`):
 
 - `uart_echo_test.py PORT BAUD`: `uart_echo` on the debugger's virtual COM
   port.
+- `uart_dma_test.py PORT [BLOCKS] [BAUD]`: `uart_dma` on the SG00 or PL10
+  board's virtual COM port, a 256-byte block at a time.
+- `uart_ring_test.py PORT [BAUD] [BYTES] [SHARE]`: `uart_ring` on the SG00
+  or PL10 board's virtual COM port: the overrun, then a stream echoed,
+  paced to SHARE of the line rate if given (reset the board before each
+  run).
 - `cdc_echo_test.py PORT`: a CDC-ACM echo (`usb_echo`).
 - `cdc_hs_test.py PORT [MEGABYTES]`: every length to 1,100 bytes, then a
   stream each way (`usbhs_echo`).
