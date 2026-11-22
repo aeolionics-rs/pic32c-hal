@@ -22,21 +22,21 @@
 //! TXC that both it and the shift register are empty. BAUD is the 16x arithmetic
 //! kind, whose steps grow at low rates (9,600 from 48 MHz is 0.14 % high).
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
-#[cfg(dma_axi)]
+#[cfg(dma)]
 use core::task::Poll;
 use portable_atomic::{AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 use crate::dma::AnyChannel;
 use crate::gpio::{Function, SealedPin, set_function};
 use crate::interrupt::typelevel::Interrupt as TypelevelInterrupt;
-#[cfg(dma_axi)]
+#[cfg(dma)]
 use crate::interrupt::typelevel::{Binding, Handler};
 use crate::sercom::Pad;
 use crate::{Peri, PeripheralType};
@@ -52,12 +52,12 @@ const INTFLAG: usize = 0x18;
 const STATUS: usize = 0x1A;
 const SYNCBUSY: usize = 0x1C;
 const DATA: usize = 0x28;
-#[cfg(dma_axi)]
+#[cfg(dma)]
 const FIFOSPACE: usize = 0x34;
 /// FIFOSPACE.RXSPACE: bytes in the receive FIFO.
-#[cfg(dma_axi)]
+#[cfg(dma)]
 const RXSPACE_SHIFT: u16 = 8;
-#[cfg(dma_axi)]
+#[cfg(dma)]
 const RXSPACE_MASK: u16 = 0x1F;
 
 const SWRST: u32 = 1 << 0;
@@ -177,7 +177,7 @@ pub enum Error {
     /// A byte came while the receive buffer was full; one or more were lost.
     Overrun,
     /// A DMA transfer failed.
-    #[cfg(dma_axi)]
+    #[cfg(dma)]
     Dma(crate::dma::Error),
 }
 
@@ -187,7 +187,7 @@ impl core::fmt::Display for Error {
             Self::Framing => "framing error",
             Self::Parity => "parity error",
             Self::Overrun => "overrun",
-            #[cfg(dma_axi)]
+            #[cfg(dma)]
             Self::Dma(_) => "DMA error",
         })
     }
@@ -323,7 +323,7 @@ impl State {
 pub(crate) trait SealedInstance {
     const BASE: usize;
     /// `n`, of `SERCOMn`: which DMA requests are its.
-    #[cfg_attr(not(dma_axi), allow(dead_code, reason = "for DMA requests"))]
+    #[cfg_attr(not(dma), allow(dead_code, reason = "for DMA requests"))]
     const NUMBER: u8;
     /// Its bus clock's bit in MCLK.APBCMASK (`sercom_v1`: off at reset).
     #[cfg(sercom_v1)]
@@ -486,10 +486,10 @@ pub(crate) fn on_interrupt<T: Instance>() {
 pub use crate::mode::{Async, Blocking};
 
 mod buffered;
-#[cfg(dma_axi)]
+#[cfg(dma)]
 mod ring;
 pub use buffered::{BufferedUart, BufferedUartRx, BufferedUartTx};
-#[cfg(dma_axi)]
+#[cfg(dma)]
 pub use ring::RingBufferedUartRx;
 
 /// A UART on a SERCOM: its transmitter and receiver, which
@@ -503,11 +503,11 @@ pub struct Uart<'d, M> {
 pub struct UartTx<'d, M> {
     base: usize,
     /// `n`, of `SERCOMn`: its DMA requests.
-    #[cfg(dma_axi)]
+    #[cfg(dma)]
     number: u8,
     state: &'static State,
     /// The transmit channel, if writes go by DMA.
-    #[cfg(dma_axi)]
+    #[cfg(dma)]
     dma: Option<Peri<'d, AnyChannel>>,
     _lifetime: PhantomData<(&'d (), M)>,
 }
@@ -515,11 +515,11 @@ pub struct UartTx<'d, M> {
 /// A UART's receiver.
 pub struct UartRx<'d, M> {
     base: usize,
-    #[cfg(dma_axi)]
+    #[cfg(dma)]
     number: u8,
     state: &'static State,
     /// The receive channel, if reads go by DMA.
-    #[cfg(dma_axi)]
+    #[cfg(dma)]
     dma: Option<Peri<'d, AnyChannel>>,
     _lifetime: PhantomData<(&'d (), M)>,
 }
@@ -572,7 +572,7 @@ impl<'d> Uart<'d, Blocking> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl<'d> Uart<'d, Async> {
     /// A UART on `sercom`, TX on `tx` and RX on `rx`, its reads and writes
     /// by DMA on `tx_dma` and `rx_dma` (as Embassy's UARTs take them), and
@@ -650,7 +650,7 @@ fn enable_interrupts<T: Instance>() {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl Uart<'_, Async> {
     /// Writes all of `bytes`, by DMA if the UART has it.
     ///
@@ -685,10 +685,10 @@ impl Uart<'_, Async> {
     }
 }
 
-/// A UART's transmit and receive DMA channels (none without `dma_axi`).
-#[cfg(dma_axi)]
+/// A UART's transmit and receive DMA channels (none without a DMA driver).
+#[cfg(dma)]
 type DmaChannels<'d> = (Peri<'d, AnyChannel>, Peri<'d, AnyChannel>);
-#[cfg(not(dma_axi))]
+#[cfg(not(dma))]
 type DmaChannels<'d> = (core::convert::Infallible, PhantomData<&'d ()>);
 
 impl<'d, M> Uart<'d, M> {
@@ -712,31 +712,31 @@ impl<'d, M> Uart<'d, M> {
         set_function(rx, rx_function);
         crate::gpio::set_function_pull(rx, config.rx_pull);
         state.rx_pin.store(u32::from(rx.pin_port()), Ordering::Relaxed);
-        #[cfg(dma_axi)]
+        #[cfg(dma)]
         let number = T::NUMBER;
-        #[cfg(dma_axi)]
+        #[cfg(dma)]
         let (tx_dma, rx_dma) = match dma {
             Some((t, r)) => (Some(t), Some(r)),
             None => (None, None),
         };
-        #[cfg(not(dma_axi))]
+        #[cfg(not(dma))]
         let _ = dma;
         Ok(Self {
             tx: UartTx {
                 base,
-                #[cfg(dma_axi)]
+                #[cfg(dma)]
                 number,
                 state,
-                #[cfg(dma_axi)]
+                #[cfg(dma)]
                 dma: tx_dma,
                 _lifetime: PhantomData,
             },
             rx: UartRx {
                 base,
-                #[cfg(dma_axi)]
+                #[cfg(dma)]
                 number,
                 state,
-                #[cfg(dma_axi)]
+                #[cfg(dma)]
                 dma: rx_dma,
                 _lifetime: PhantomData,
             },
@@ -851,7 +851,7 @@ impl<M> UartTx<'_, M> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl UartTx<'_, Async> {
     /// Writes all of `bytes`: by DMA if the UART has it (done when the last
     /// byte is in the SERCOM; [`flush`](Self::flush) waits for it to go out),
@@ -956,7 +956,7 @@ impl<M> UartRx<'_, M> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl UartRx<'_, Async> {
     /// Reads one byte.
     ///
@@ -1024,7 +1024,7 @@ impl UartRx<'_, Async> {
 }
 
 /// Waits until the receive FIFO holds a byte.
-#[cfg(dma_axi)]
+#[cfg(dma)]
 async fn fifo_byte(base: usize, state: &'static State) {
     poll_fn(|cx| {
         state.rx_waker.register(cx.waker());
@@ -1164,7 +1164,7 @@ impl<M> embedded_io::Read for Uart<'_, M> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl embedded_io_async::Write for UartTx<'_, Async> {
     async fn write(&mut self, bytes: &[u8]) -> Result<usize, Error> {
         UartTx::write(self, bytes).await?;
@@ -1177,7 +1177,7 @@ impl embedded_io_async::Write for UartTx<'_, Async> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl embedded_io_async::Write for Uart<'_, Async> {
     async fn write(&mut self, bytes: &[u8]) -> Result<usize, Error> {
         embedded_io_async::Write::write(&mut self.tx, bytes).await
@@ -1188,7 +1188,7 @@ impl embedded_io_async::Write for Uart<'_, Async> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl embedded_io_async::Read for UartRx<'_, Async> {
     /// At least one byte, then whatever more has already come: on the RXC
     /// interrupt even on a UART with DMA, as a DMA read waits for the whole
@@ -1202,7 +1202,7 @@ impl embedded_io_async::Read for UartRx<'_, Async> {
     }
 }
 
-#[cfg(dma_axi)]
+#[cfg(dma)]
 impl embedded_io_async::Read for Uart<'_, Async> {
     /// At least one byte, then whatever more has already come.
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {

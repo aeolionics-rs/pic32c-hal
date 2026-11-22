@@ -509,7 +509,10 @@ impl<M> I2c<'_, M> {
 
 impl<M> Drop for I2c<'_, M> {
     fn drop(&mut self) {
-        write32(self.base, CTRLA, 0);
+        // ENABLE alone: CTRLA 0 would also make it a USART on an external
+        // clock, whose ENABLE then waits for that clock to synchronise
+        // (never, on the SG00).
+        write32(self.base, CTRLA, read32(self.base, CTRLA) & !ENABLE);
         while read32(self.base, SYNCBUSY) & SYNC_ENABLE != 0 {}
     }
 }

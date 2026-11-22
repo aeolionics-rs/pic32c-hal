@@ -256,6 +256,15 @@ embassy_hal_internal::peripherals!(
     SERCOM4,
     SERCOM5,
     WDT,
+    // The DMAC's channels.
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
     // The time driver's counter, if on, is its own.
     #[cfg(not(time_driver = "tcc0"))]
     TCC0,

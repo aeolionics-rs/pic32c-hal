@@ -207,21 +207,30 @@ The plan is to publish to crates.io once these have stabilized.
   `clocks` is the CK's module (XOSC, PLL0 and twelve generators; its PLL
   outputs are numbered 0 to 4, it needs the additional regulator, and
   takes one flash wait state per 24 MHz to 72 MHz), `gpio`, `uart` (SERCOM
-  v6 with its FIFO; no DMA yet), `i2c` (built, not yet run), `wdt`, `uid`,
-  the time driver on a TCC (all seven are 16-bit), and `can` (an `M_CAN`
-  3.3.0 behind a wrapper, so its registers start 0x100 in and the message
-  RAM's offset is in the wrapper). Not yet: its DMAC (the SAM D5x kind),
-  flash (another FCW), and the rest.
+  v6 with its FIFO, DMA and the ring receiver), `spi`, `i2c` (built, not
+  yet run), `wdt`, `uid`, the time driver on a TCC (all seven are 16-bit),
+  `can` (an `M_CAN` 3.3.0 behind a wrapper, so its registers start 0x100 in
+  and the message RAM's offset is in the wrapper), and `dma` on its DMAC
+  (the SAM D21/C21 kind, `dma_u2223`: 8 channels, descriptors in SRAM, the
+  CK's `dma` API; a ring is two half-ring descriptors linked to each
+  other). Not yet: flash (another FCW), and the rest.
 - `examples/pic32cm-sg00-curiosity-pro`: board support for the SG00
   Curiosity Pro (EV53V42A; VCOM on SERCOM4 PD19/PD20, LED0 PA20, LED1
   PA18, SW0 PB07, SW1 PB11), examples `blink`, `uart_echo`, `watchdog`
-  (with the unique ID) and `can_loopback` (internal loopback only). Build
-  with `cargo build --release -p pic32cm-sg00-curiosity-pro --target
-  thumbv8m.base-none-eabi --example blink`; flash with pyOCD and the
-  PIC32CM-SG00_DFP pack, the board's debugger in CMSIS-DAP mode. All four
-  pass on the board: 1,002-1,003 ms a tick for a minute, 20,000 bytes
-  echoed intact at 115,200 baud, the watchdog's tests and reset, and every
-  classic and FD frame through CAN0 at 500 kbit/s and 2 Mbit/s.
+  (with the unique ID), `can_loopback` (internal loopback only), `dma`,
+  `uart_dma` (256-byte blocks echoed by DMA, a block at a time),
+  `uart_ring` (the ring receiver, driven from the host) and `spi` (in
+  loopback on the mikroBUS pins, SERCOM2). Build with `cargo build
+  --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi
+  --example blink`; flash with pyOCD and the PIC32CM-SG00_DFP pack, the
+  board's debugger in CMSIS-DAP mode. All pass on the board: 1,002-1,003
+  ms a tick for a minute, 20,000 bytes echoed intact at 115,200 baud, the
+  watchdog's tests and reset, every classic and FD frame through CAN0 at
+  500 kbit/s and 2 Mbit/s; `dma`'s copies (16 KiB of words at 53 MB/s,
+  all eight channels at once, a copy dropped part way), 400 blocks echoed
+  by DMA at 921,600 baud, 200,000 bytes through a 2 KiB ring at 115,200
+  and at 921,600 (paced), an `Overrun` when the reader falls a ring
+  behind, and `spi`'s 22 checks, to 12 MHz by DMA.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -309,16 +318,16 @@ PIC32CM PL10:
   UART's are.
 - Watchdog and RTC: the CK's IP families, with small differences.
 - External interrupts on its EIC (U2254).
-- New drivers: the DMAC (which brings back UART DMA and the ring
-  receiver), flash (NVMCTRL), the ADC.
+- New drivers: flash (NVMCTRL), the ADC. Its DMAC is the SG00's IP
+  (`dma_u2223`, two channels), so the SG00's `dma` with its channel count,
+  vector and trigger table; UART DMA and the ring receiver then need
+  SERCOM v1's paths.
 - Unique ID, and a software open-drain output.
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or
   stack painting in the board crate.
 
 PIC32CM SG00:
 
-- The DMAC (SAM D5x style, u2223), then UART DMA, the ring receiver and
-  SPI.
 - Flash on its FCW (a different register map from the CK's).
 - CAN on a bus (only internal loopback has run); `exti`, `rtc`, `adc` and
   `usb` (the CK's IP versions) checked on the board.

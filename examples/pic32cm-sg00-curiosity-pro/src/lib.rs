@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Board support for the PIC32CM SG00 Curiosity Pro (EV53V42A,
-//! PIC32CM5112SG00100): [`boot!`], and [`init`], which starts pic32c-hal at
+//! PIC32CM5112SG00100): [`boot!`], [`init`], which starts pic32c-hal at
 //! 72 MHz from the board's 12 MHz crystal, with the time driver on
-//! generator 4 (16 MHz).
+//! generator 4 (16 MHz), and [`Log`], the bench programs' log on the
+//! virtual COM port.
 //!
 //! - The debugger's virtual COM port: SERCOM4, TX PD19 (pad 0) and RX PD20
 //!   (pad 1), function D, I/O set 2.
@@ -24,6 +25,9 @@ pub use pic32c_hal;
 pub use pic32c_hal::pac;
 
 use pic32c_hal::clocks::{self, Xosc};
+use pic32c_hal::mode::Blocking;
+use pic32c_hal::uart::{self, Uart};
+use pic32c_hal::{Peri, peripherals};
 
 /// The CPU's rate after [`init`].
 pub const CPU_HZ: u32 = 72_000_000;
@@ -113,4 +117,44 @@ macro_rules! boot {
             );
         }
     };
+}
+
+/// The virtual COM port as a blocking log (115,200 baud), `\n` sent as
+/// `\r\n`.
+pub struct Log(Uart<'static, Blocking>);
+
+impl Log {
+    /// The log on SERCOM4, TX PD19 and RX PD20.
+    ///
+    /// # Panics
+    ///
+    /// If the SERCOM's generator (3, 48 MHz after [`init`]) can't give
+    /// 115,200 baud.
+    #[must_use]
+    pub fn init(sercom: Peri<'static, peripherals::SERCOM4>, tx: Peri<'static, peripherals::PD19>, rx: Peri<'static, peripherals::PD20>) -> Self {
+        Self(Uart::new_blocking(sercom, tx, rx, uart::Config::default()).expect("115,200 baud from 48 MHz"))
+    }
+
+    /// Waits until everything written has gone out.
+    pub fn flush(&mut self) {
+        self.0.blocking_flush();
+    }
+}
+
+impl core::fmt::Write for Log {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for line in s.split_inclusive('\n') {
+            self.0.blocking_write(line.trim_end_matches('\n').as_bytes());
+            if line.ends_with('\n') {
+                self.0.blocking_write(b"\r\n");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Microseconds since the time driver started.
+#[must_use]
+pub fn micros() -> u64 {
+    embassy_time::Instant::now().as_micros()
 }

@@ -49,8 +49,8 @@
 //! driver's handlers. [`init`] sets the [`clocks`] up from its [`Config`],
 //! and the drivers' rates follow from it.
 //!
-//! - [`dma`]: the DMA controllers' 12 channels, memory to memory and
-//!   peripheral-paced transfers as futures;
+//! - [`dma`]: the DMA channels (the CK's 12, the SG00's 8), memory to
+//!   memory and peripheral-paced transfers as futures;
 //! - [`can`] (feature `can-hal`): CAN0 and CAN1, `M_CAN` controllers, as
 //!   can-hal channels with confirmed transmission, CAN FD and live filters.
 
@@ -81,7 +81,9 @@ pub mod can;
 #[cfg_attr(any(pic32ck, pic32cm_sg), path = "clocks.rs")]
 #[cfg_attr(pic32cm_pl, path = "clocks_pl.rs")]
 pub mod clocks;
-#[cfg(dma_axi)]
+#[cfg_attr(dma_axi, path = "dma.rs")]
+#[cfg_attr(dma_u2223, path = "dma_u2223.rs")]
+#[cfg(dma)]
 pub mod dma;
 #[cfg(all(feature = "eth", gmac))]
 pub mod eth;
@@ -96,8 +98,7 @@ pub mod mode;
 #[cfg(rtc_v3)]
 pub mod rtc;
 pub mod sercom;
-// Its async half is DMA-driven, so it waits for the SG00's DMAC.
-#[cfg(all(sercom_v6, dma_axi))]
+#[cfg(all(sercom_v6, dma))]
 pub mod spi;
 #[cfg(feature = "time-driver")]
 pub mod time;
