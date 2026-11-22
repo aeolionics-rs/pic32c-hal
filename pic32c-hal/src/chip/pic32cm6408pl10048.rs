@@ -69,6 +69,7 @@ embassy_hal_internal::peripherals!(
     NVMCTRL,
     WDT,
     RTC,
+    ADC,
     EXTINT0,
     EXTINT1,
     EXTINT2,

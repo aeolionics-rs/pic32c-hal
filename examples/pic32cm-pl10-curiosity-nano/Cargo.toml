@@ -78,6 +78,16 @@ name = "exti"
 test = false
 bench = false
 
+[[example]]
+name = "adc"
+test = false
+bench = false
+
+[[example]]
+name = "adc_pin"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }

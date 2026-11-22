@@ -18,8 +18,8 @@
 //!   with 2 channels), `wdt_v1` (the CK's WDT with SYNCBUSY.CLEAR at bit 4
 //!   and its own reset causes), `nvmctrl` (its flash controller: 512-byte
 //!   pages, 32-bit word writes), `rtc_v3` (the CK's RTC; its OSC32KCTRL
-//!   differs) and `eic_v1` (the CK's EIC with one vector and no
-//!   PINSTATE).
+//!   differs), `eic_v1` (the CK's EIC with one vector and no PINSTATE)
+//!   and `adc_06272` (its ADC, IP 06272, laid out like an AVR Dx's).
 //! - `pic32cm_sg`: the PIC32CM SG00 (Cortex-M23). The PIC32CK's
 //!   `sercom_v6`, `port_v4`, `wdt_v2` and `mcan` (its `M_CAN` is 3.3.0, in a
 //!   wrapper), `dma_u2223` (the SAM D21/C21 kind of DMAC), and `fcw` and
@@ -49,6 +49,7 @@ const ALL: &[&str] = &[
     "dma_axi",
     "dma_u2223",
     "adc_msh",
+    "adc_06272",
     "rtc_v3",
     "wdt_v2",
     "wdt_v1",
@@ -91,7 +92,7 @@ const PIC32CK: &[&str] = &[
     "usb_hs",
 ];
 
-const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_u2223", "wdt_v1", "nvmctrl", "rtc_v3", "eic_v1"];
+const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_u2223", "wdt_v1", "nvmctrl", "rtc_v3", "eic_v1", "adc_06272"];
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 

@@ -198,8 +198,11 @@ The plan is to publish to crates.io once these have stabilized.
   source; a system reset request clears its RTC, unlike the CK's and the
   SG00's), `exti` (the CK's driver with one vector for all 16 lines and no
   PINSTATE; NMI on PA01, PA07 or PA30; the internal pull doesn't hold
-  while the EIC has a pin, so it needs an external pull or a driver), and
-  the time driver on TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
+  while the EIC has a pin, so it needs an external pull or a driver),
+  `adc` (a driver of its own for its ADC, IP 06272, behind the CK's ADC
+  API: VDD, an external or four internal references; VDDIO/10 and the
+  temperature sensor with its factory calibration inside the chip; results
+  on the 12-bit scale at 8, 10 and 12 bits), and the time driver on TC0 and TC1 paired as 32 bits (its TCC0 is 16-bit), or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (`blink` on
   TC0+TC1 and on TC0 alone: ticks 1,002-1,003 ms apart for a minute). Atomics go through
   `portable-atomic`. The other modules are CK only for now.
@@ -209,8 +212,9 @@ The plan is to publish to crates.io once these have stabilized.
   (`BufferedUart`), and `dma`, `uart_dma`, `uart_ring`, `spi` (on the
   board's SPI pins, SERCOM0 PA04/PA05/PA07, in loopback) and `i2c` (on its
   I2C pins, SERCOM0 PA00/PA01, with a sensor wired), `flash`,
-  `flash_async`, `watchdog`, `uid`, `rtc` and `exti` (with PA08 jumpered
-  to PA09 and PA10 to PA11), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
+  `flash_async`, `watchdog`, `uid`, `rtc`, `exti` (with PA08 jumpered
+  to PA09 and PA10 to PA11), `adc` and `adc_pin` (PA03's readings, as
+  `name=value` lines, for a voltage source wired to it), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -237,7 +241,13 @@ The plan is to publish to crates.io once these have stabilized.
   woken about 100 µs after the output moved, a level already met at once,
   and 100 alternate edges, none missed; and on the one vector, two lines
   rising together both woken, and one line's edge leaving the other's
-  wait alone.
+  wait alone; and `adc`: VDD from VDDIO/10 against the 1.024, 2.048 and
+  2.5 V references, 3.34 to 3.38 V (the debugger reports 3.31 V), the
+  three resolutions agreeing, async reads matching, and the temperature
+  sensor reading 33.5 °C with an SHT40 beside the board at 24.7 °C (about
+  9 °C high: see the driver's known issue); and `adc_pin` with a 12-bit
+  DAC on PA03 stepped from 0.2 V to 3.1 V: linear to within 2.6 counts
+  (RMS 1.1) against VDD and against the 2.048 V reference.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -391,7 +401,9 @@ PIC32CK:
 
 PIC32CM PL10:
 
-- A new driver: the ADC.
+- The ADC's temperature sensor reads about 9 °C high with the factory
+  calibration and the data sheet's equation; the preliminary data sheet
+  doesn't settle it. The external reference needs wiring (not yet run).
 - A software open-drain output.
 - `rtc` from the crystal, and the NMI, on a board with the crystal and an
   NMI pin wired (not yet run).

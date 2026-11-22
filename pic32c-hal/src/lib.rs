@@ -72,7 +72,9 @@ compile_error!("choose one chip");
 #[allow(clippy::missing_safety_doc, clippy::expl_impl_clone_on_copy, reason = "in code embassy-hal-internal's macros generate")]
 mod chip;
 
-#[cfg(adc_msh)]
+#[cfg_attr(adc_msh, path = "adc.rs")]
+#[cfg_attr(adc_06272, path = "adc_06272.rs")]
+#[cfg(any(adc_msh, adc_06272))]
 pub mod adc;
 #[cfg(cmcc)]
 pub mod cache;
