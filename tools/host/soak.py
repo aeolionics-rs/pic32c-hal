@@ -159,7 +159,10 @@ def tcp_soak(counts, host, session_bytes):
             t = threading.Thread(target=reader, daemon=True)
             began = time.monotonic()
             t.start()
-            sock.sendall(data)
+            # A piece at a time: sendall's timeout covers the whole call, so
+            # one call for it all would count a slow stream as a stall.
+            for i in range(0, session_bytes, 65536):
+                sock.sendall(data[i:i + 65536])
             t.join(60)
             elapsed = time.monotonic() - began
             if bytes(received) != data:
