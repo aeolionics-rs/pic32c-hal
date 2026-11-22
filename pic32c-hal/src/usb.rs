@@ -29,7 +29,7 @@ use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr::{addr_of_mut, read_volatile, write_volatile};
-use core::sync::atomic::{AtomicU16, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU8, AtomicU16, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -156,6 +156,9 @@ static IN_WAKERS: [AtomicWaker; ENDPOINTS] = [const { AtomicWaker::new() }; ENDP
 static OUT_WAKERS: [AtomicWaker; ENDPOINTS] = [const { AtomicWaker::new() }; ENDPOINTS];
 /// Device interrupt flags taken by the handler, for [`Bus::poll`].
 static BUS_EVENTS: AtomicU16 = AtomicU16::new(0);
+/// A `SET_ADDRESS`'s address with ADDEN, for the handler to write to DADD
+/// when the status stage's IN completes; 0 for none.
+static PENDING_ADDRESS: AtomicU8 = AtomicU8::new(0);
 /// Which endpoints are enabled: bit n OUT n, bit 8 + n IN n.
 static ENABLED: AtomicU16 = AtomicU16::new(0);
 
@@ -300,6 +303,10 @@ handler!(USB_OTHER, USB_SOF, USB_TRCPT0, USB_TRCPT1);
 fn on_interrupt() {
     let device = read16(INTFLAG) & read16(INTENSET) & (INT_SUSPEND | INT_EORST | INT_WAKEUP | INT_EORSM);
     if device != 0 {
+        if device & INT_EORST != 0 {
+            // A reset abandons a SET_ADDRESS in progress.
+            PENDING_ADDRESS.store(0, Ordering::Relaxed);
+        }
         write16(INTFLAG, device);
         BUS_EVENTS.fetch_or(device, Ordering::AcqRel);
         BUS_WAKER.wake();
@@ -315,6 +322,15 @@ fn on_interrupt() {
         let flags = read8(ep(n, EPINTFLAG)) & read8(ep(n, EPINTENSET));
         if flags != 0 {
             write8(ep(n, EPINTENCLR), flags);
+        }
+        // `SET_ADDRESS`'s status stage is done: the address applies from the
+        // host's next transaction, which may follow within 2 ms, sooner
+        // than the waiting task may run.
+        if n == 0 && flags & TRCPT1 != 0 {
+            let address = PENDING_ADDRESS.swap(0, Ordering::Relaxed);
+            if address != 0 {
+                write8(DADD, address);
+            }
         }
         // On endpoint 0 a SETUP ends a wait for either bank, so any flag
         // wakes both.
@@ -416,6 +432,27 @@ fn set_up_control(max_packet_size: u16) {
     write8(ep(0, EPSTATUSCLR), BK1RDY | STALLRQ0 | STALLRQ1);
     // Bank 0 empty, ready for a SETUP or OUT.
     arm_out(0, max_packet_size);
+}
+
+/// Whether a SETUP has come in that [`Bus::poll`](embassy_usb_driver::Bus::poll)
+/// hasn't taken yet.
+fn setup_waiting() -> bool {
+    read8(ep(0, EPINTFLAG)) & RXSTP != 0
+}
+
+/// Bank 0 ready for the status stage's OUT, or for the next SETUP, unless
+/// that SETUP has already come in. The host may send the next request as
+/// soon as a status IN completes, before the task that waited for it runs
+/// again; arming the bank then would set its byte count to 0, so `poll`
+/// would drop the SETUP as short, and an OUT could overwrite it. The check
+/// and the arming are in one critical section, so only the controller can
+/// come between them, for a few cycles.
+fn arm_control_out(max_packet_size: u16) {
+    critical_section::with(|_| {
+        if !setup_waiting() {
+            arm_out(0, max_packet_size);
+        }
+    });
 }
 
 /// Whether a control stage can no longer complete: a reset or a suspend
@@ -561,7 +598,7 @@ impl embassy_usb_driver::Bus for Bus<'_> {
     async fn control_data_out(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let mut total = 0;
         loop {
-            arm_out(0, self.control);
+            arm_control_out(self.control);
             self.wait(TRCPT0, &OUT_WAKERS[0]).await?;
             compiler_fence(Ordering::SeqCst);
             let len = byte_count(0, 0);
@@ -592,28 +629,39 @@ impl embassy_usb_driver::Bus for Bus<'_> {
         }
         // The status stage: bank 0 empty, to take the host's zero-length
         // OUT.
-        arm_out(0, self.control);
+        arm_control_out(self.control);
         Ok(())
     }
 
     async fn control_accept(&mut self) {
         // The status stage: a zero-length IN. A new SETUP ends it too.
         let _ = self.send(&[]).await;
-        arm_out(0, self.control);
+        arm_control_out(self.control);
     }
 
     async fn control_reject(&mut self) {
-        write8(ep(0, EPSTATUSSET), STALLRQ0 | STALLRQ1);
-        arm_out(0, self.control);
+        // A SETUP already in has ended the request, and the stall would
+        // answer the new one.
+        critical_section::with(|_| {
+            if !setup_waiting() {
+                write8(ep(0, EPSTATUSSET), STALLRQ0 | STALLRQ1);
+                arm_out(0, self.control);
+            }
+        });
     }
 
     async fn control_accept_set_address(&mut self, addr: u8) {
-        // The address takes effect after the status stage; one the host
-        // abandoned (a reset) doesn't count.
-        if self.send(&[]).await.is_ok() {
-            write8(DADD, (addr & 0x7F) | DADD_ADDEN);
+        // The address takes effect after the status stage: the interrupt
+        // handler writes it when the zero-length IN completes, or, if the
+        // IN completed before the wait enabled that interrupt, this does.
+        // One the host abandoned (a reset, a new SETUP) doesn't count.
+        PENDING_ADDRESS.store((addr & 0x7F) | DADD_ADDEN, Ordering::Relaxed);
+        let done = self.send(&[]).await.is_ok();
+        let address = PENDING_ADDRESS.swap(0, Ordering::Relaxed);
+        if done && address != 0 {
+            write8(DADD, address);
         }
-        arm_out(0, self.control);
+        arm_control_out(self.control);
     }
 
     #[expect(clippy::unused_async_trait_impl, reason = "the trait's signature; nothing to wait for")]
