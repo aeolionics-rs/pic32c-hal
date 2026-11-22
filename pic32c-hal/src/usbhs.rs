@@ -1064,13 +1064,49 @@ impl<D> embassy_usb_driver::Endpoint for Endpoint<'_, D> {
     }
 }
 
+// Each packet's code is in the transfer's loop itself rather than in an
+// async function of its own: at opt-level "s" that extra layer cost a
+// 512-byte CDC-ACM echo 2.5 % (12.24 against 12.55 MB/s each way).
+// `#[inline(always)]` on that function doesn't recover it: it inlines the
+// function that makes the future, and the future's poll stays its own.
 impl embassy_usb_driver::EndpointOut for Endpoint<'_, Out> {
     async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let packet = usize::from(self.info.max_packet_size);
+        let addr = self.info.addr;
+        let n = addr.index();
+        let waker = self.waker();
         let mut total = 0;
         loop {
-            let len = self.read_packet(&mut buf[total..]).await?;
-            total += len;
+            let len = poll_fn(|cx| {
+                waker.register(cx.waker());
+                if !is_enabled(addr) {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                match indexed(n, || (read8(RXCSRL) & RX_RXPKTRDY != 0).then(|| usize::from(read16(RXCOUNT)))) {
+                    Some(len) => Poll::Ready(Ok(len)),
+                    None => Poll::Pending,
+                }
+            })
+            .await?;
+            let rest = &mut buf[total..];
+            let result = if len > rest.len() {
+                Err(EndpointError::BufferOverflow)
+            } else if let Some(channel) = self.dma_for(rest.as_ptr() as usize, len) {
+                // SAFETY: `buf` stays borrowed until the transfer is done,
+                // even if this future is dropped first (the transfer's
+                // guard waits).
+                match unsafe { dma_transfer(channel, n, rest.as_mut_ptr() as usize, len, false) }.await {
+                    Ok(()) => Ok(len),
+                    Err(()) => Err(EndpointError::Disabled),
+                }
+            } else {
+                fifo_read(n, &mut rest[..len]);
+                Ok(len)
+            };
+            // The packet's done with (or dropped): RXPKTRDY off, the other
+            // bits that writing 0 clears left as they are.
+            indexed(n, || write8(RXCSRL, (read8(RXCSRL) & RX_SENDSTALL) | RX_SENTSTALL | RX_OVERRUN));
+            total += result?;
             if len < packet || total == buf.len() {
                 return Ok(total);
             }
@@ -1081,81 +1117,35 @@ impl embassy_usb_driver::EndpointOut for Endpoint<'_, Out> {
 impl embassy_usb_driver::EndpointIn for Endpoint<'_, In> {
     async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointDisabledError> {
         let packet = usize::from(self.info.max_packet_size);
-        if buf.is_empty() {
-            return self.write_packet(&[]).await;
-        }
-        for chunk in buf.chunks(packet) {
-            self.write_packet(chunk).await?;
-        }
-        if needs_zlp && buf.len().is_multiple_of(packet) {
-            self.write_packet(&[]).await?;
-        }
-        Ok(())
-    }
-}
-
-impl Endpoint<'_, Out> {
-    /// Takes one packet into `buf`.
-    async fn read_packet(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let addr = self.info.addr;
         let n = addr.index();
         let waker = self.waker();
-        let len = poll_fn(|cx| {
-            waker.register(cx.waker());
-            if !is_enabled(addr) {
-                return Poll::Ready(Err(EndpointError::Disabled));
+        // The packets, then a zero-length one for an empty transfer or one
+        // that ends on a full packet when the caller asks.
+        let zlp = buf.is_empty() || (needs_zlp && buf.len().is_multiple_of(packet));
+        let count = buf.len().div_ceil(packet) + usize::from(zlp);
+        for i in 0..count {
+            let chunk = &buf[(i * packet).min(buf.len())..((i + 1) * packet).min(buf.len())];
+            // Room for a packet: TXPKTRDY clear (a double-buffered FIFO
+            // clears it again while its first packet waits for the host).
+            poll_fn(|cx| {
+                waker.register(cx.waker());
+                if !is_enabled(addr) {
+                    return Poll::Ready(Err(EndpointDisabledError));
+                }
+                if indexed(n, || read8(TXCSRL) & TX_TXPKTRDY == 0) { Poll::Ready(Ok(())) } else { Poll::Pending }
+            })
+            .await?;
+            if let Some(channel) = self.dma_for(chunk.as_ptr() as usize, chunk.len()) {
+                // SAFETY: as in `read_transfer`; the DMA only reads `chunk`.
+                if unsafe { dma_transfer(channel, n, chunk.as_ptr() as usize, chunk.len(), true) }.await.is_err() {
+                    return Err(EndpointDisabledError);
+                }
+            } else {
+                fifo_write(n, chunk);
             }
-            match indexed(n, || (read8(RXCSRL) & RX_RXPKTRDY != 0).then(|| usize::from(read16(RXCOUNT)))) {
-                Some(len) => Poll::Ready(Ok(len)),
-                None => Poll::Pending,
-            }
-        })
-        .await?;
-        let result = if len > buf.len() {
-            Err(EndpointError::BufferOverflow)
-        } else if let Some(channel) = self.dma_for(buf.as_ptr() as usize, len) {
-            // SAFETY: `buf` stays borrowed until the transfer is done, even
-            // if this future is dropped first (the transfer's guard waits).
-            match unsafe { dma_transfer(channel, n, buf.as_mut_ptr() as usize, len, false) }.await {
-                Ok(()) => Ok(len),
-                Err(()) => Err(EndpointError::Disabled),
-            }
-        } else {
-            fifo_read(n, &mut buf[..len]);
-            Ok(len)
-        };
-        // The packet's done with (or dropped): RXPKTRDY off, the other bits
-        // that writing 0 clears left as they are.
-        indexed(n, || write8(RXCSRL, (read8(RXCSRL) & RX_SENDSTALL) | RX_SENTSTALL | RX_OVERRUN));
-        result
-    }
-}
-
-impl Endpoint<'_, In> {
-    /// Sends one packet, `buf`, once there is room for it in the FIFO.
-    async fn write_packet(&mut self, buf: &[u8]) -> Result<(), EndpointDisabledError> {
-        let addr = self.info.addr;
-        let n = addr.index();
-        let waker = self.waker();
-        // Room for a packet: TXPKTRDY clear (a double-buffered FIFO clears
-        // it again while its first packet waits for the host).
-        poll_fn(|cx| {
-            waker.register(cx.waker());
-            if !is_enabled(addr) {
-                return Poll::Ready(Err(EndpointDisabledError));
-            }
-            if indexed(n, || read8(TXCSRL) & TX_TXPKTRDY == 0) { Poll::Ready(Ok(())) } else { Poll::Pending }
-        })
-        .await?;
-        if let Some(channel) = self.dma_for(buf.as_ptr() as usize, buf.len()) {
-            // SAFETY: as in `read`; the DMA only reads `buf`.
-            if unsafe { dma_transfer(channel, n, buf.as_ptr() as usize, buf.len(), true) }.await.is_err() {
-                return Err(EndpointDisabledError);
-            }
-        } else {
-            fifo_write(n, buf);
+            indexed(n, || write8(TXCSRL, (read8(TXCSRL) & TX_SENDSTALL) | TX_KEEP | TX_TXPKTRDY));
         }
-        indexed(n, || write8(TXCSRL, (read8(TXCSRL) & TX_SENDSTALL) | TX_KEEP | TX_TXPKTRDY));
         Ok(())
     }
 }
