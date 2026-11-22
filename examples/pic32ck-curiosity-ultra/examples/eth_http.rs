@@ -25,13 +25,11 @@ use core::fmt::Write;
 #[path = "common/net.rs"]
 mod net;
 
-use pic32ck_curiosity_ultra::clocks;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use embassy_futures::join::join4;
+use embassy_net::iface::Iface;
 use embassy_net::iface::dhcpv4::DhcpConfig;
 use embassy_net::iface::slaac::SlaacConfig;
-use embassy_net::iface::Iface;
 use embassy_net::{Runner, Stack, StackStorage, StaticPool};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_io_async::Write as _;
@@ -39,6 +37,8 @@ use panic_halt as _;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
 use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::{bind_interrupts, uid};
+use pic32ck_curiosity_ultra::clocks;
+use pic32ck_curiosity_ultra::uart::Uart;
 use picoserve::response::IntoResponse;
 use picoserve::routing::{get, get_service};
 use static_cell::StaticCell;
@@ -151,7 +151,18 @@ async fn main(spawner: Spawner) {
 
     let id = uid::unique_id();
     let mac = [0x02, id[1], id[2], id[3], id[4], id[5]];
-    let pins = Pins { ref_clk: p.PC00, mdc: p.PC03, mdio: p.PC04, crs_dv: p.PC10, rx_er: p.PC09, rxd0: p.PC07, rxd1: p.PC06, tx_en: p.PC11, txd0: p.PC12, txd1: p.PC13 };
+    let pins = Pins {
+        ref_clk: p.PC00,
+        mdc: p.PC03,
+        mdio: p.PC04,
+        crs_dv: p.PC10,
+        rx_er: p.PC09,
+        rxd0: p.PC07,
+        rxd1: p.PC06,
+        tx_en: p.PC11,
+        txd0: p.PC12,
+        txd1: p.PC13,
+    };
     let Ok(ethernet) = Ethernet::new(p.ETH, Irqs, pins, p.PD21, QUEUE.init(PacketQueue::new()), mac, clocks::GEN_TIMER).await else {
         let _ = writeln!(log, "eth: no PHY");
         loop {
@@ -169,7 +180,10 @@ async fn main(spawner: Spawner) {
     let _ = writeln!(log, "IPv4 {:?}; IPv6 {:?}; link-local {:?}", net::v4(iface), net::v6(iface), net::link_local(iface));
 
     let app = picoserve::Router::new()
-        .route("/", get_service(picoserve::response::File::html("<!doctype html><title>PIC32CK</title><h1>Hello from the PIC32CK</h1><p>pic32c-hal, embassy-net and picoserve.</p>\n")))
+        .route(
+            "/",
+            get_service(picoserve::response::File::html("<!doctype html><title>PIC32CK</title><h1>Hello from the PIC32CK</h1><p>pic32c-hal, embassy-net and picoserve.</p>\n")),
+        )
         .route("/status", get(move || async move { status(iface) }))
         .route("/blob", get_service(picoserve::response::File::with_content_type("application/octet-stream", &BLOB)));
 

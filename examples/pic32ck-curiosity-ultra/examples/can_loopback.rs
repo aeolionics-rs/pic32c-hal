@@ -37,9 +37,9 @@ use core::fmt::Write;
 use core::time::Duration;
 
 use can_hal::{BusState, BusStatus, CanFdFrame, CanFrame, CanId, ConfirmedTransmit, Event, Filter, Filterable, Frame, Outcome, ReceiveEvents, SamplePoint, Statistics, TransmitId, TryTransmitError};
+use can0::Channel;
 use cortex_m_rt::entry;
 use panic_halt as _;
-use can0::Channel;
 use pic32ck_curiosity_ultra::pic32c_hal::can::{BitTiming, Config, Error, Mode, STANDARD_FILTERS};
 use pic32ck_curiosity_ultra::pic32c_hal::gpio::{Level, Output};
 use pic32ck_curiosity_ultra::time;

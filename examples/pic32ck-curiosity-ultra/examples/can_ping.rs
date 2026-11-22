@@ -26,17 +26,16 @@ use core::fmt::Write;
 use core::time::Duration;
 
 use can_hal::{BusState, BusStatus, CanFdFrame, CanFrame, CanId, ConfirmedTransmit, Event, Frame, Outcome, ReceiveEvents, Statistics, TransmitId};
+use can0::Channel;
 use cortex_m_rt::entry;
 use panic_halt as _;
-use can0::Channel;
 use pic32ck_curiosity_ultra::pic32c_hal::can::Mode;
 use pic32ck_curiosity_ultra::pic32c_hal::gpio::{Level, Output};
-use pic32ck_curiosity_ultra::uart::Uart;
 use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 #[path = "common/can0.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod can0;
-
 
 pic32ck_curiosity_ultra::boot!();
 

@@ -113,14 +113,14 @@ pub mod usbhs;
 #[cfg(wdt_v2)]
 pub mod wdt;
 
-pub use chip::{FLASH_SIZE, Peripherals, interrupt, peripherals};
-pub use embassy_hal_internal::{Peri, PeripheralType};
 /// The chip's peripheral access crate, for what the HAL doesn't cover yet.
 /// Not part of the HAL's stable API.
 #[cfg(feature = "unstable-pac")]
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
+pub use chip::{FLASH_SIZE, Peripherals, interrupt, peripherals};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 
 /// Binds interrupts to the HAL's handlers, and makes the type drivers take
 /// to prove it:

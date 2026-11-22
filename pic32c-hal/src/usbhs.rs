@@ -460,7 +460,14 @@ impl<'d> Driver<'d> {
         // SAFETY: the binding makes the vector call the handler.
         unsafe { Interrupt::USBHS.enable() };
         let dma_free = if config.dma { DMA_CHANNELS } else { 0 };
-        Self { speed, out_eps: [None; ENDPOINTS], in_eps: [None; ENDPOINTS], fifo_free: EP0_FIFO_BYTES, dma_free, _lifetime: PhantomData }
+        Self {
+            speed,
+            out_eps: [None; ENDPOINTS],
+            in_eps: [None; ENDPOINTS],
+            fifo_free: EP0_FIFO_BYTES,
+            dma_free,
+            _lifetime: PhantomData,
+        }
     }
 
     /// A DMA channel for a new endpoint of `ep_type`: bulk endpoints get
@@ -501,7 +508,13 @@ impl<'d> Driver<'d> {
         #[expect(clippy::cast_possible_truncation, reason = "under 8192")]
         let fifo_start = self.fifo_free as u16;
         self.fifo_free += bytes;
-        let config = Some(EndpointSetup { ep_type, max_packet_size, fifo_start, fifo_size, double });
+        let config = Some(EndpointSetup {
+            ep_type,
+            max_packet_size,
+            fifo_start,
+            fifo_size,
+            double,
+        });
         if direction == Direction::In {
             self.in_eps[n] = config;
         } else {
@@ -600,7 +613,16 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
         // High speed takes 64 bytes on endpoint 0, full speed up to 64.
         let control = control_max_packet_size.min(64);
-        Bus { speed: self.speed, out_eps: self.out_eps, in_eps: self.in_eps, powered: false, suspended: false, control, rx_pending: false, _lifetime: PhantomData }
+        Bus {
+            speed: self.speed,
+            out_eps: self.out_eps,
+            in_eps: self.in_eps,
+            powered: false,
+            suspended: false,
+            control,
+            rx_pending: false,
+            _lifetime: PhantomData,
+        }
     }
 }
 
@@ -874,36 +896,36 @@ impl embassy_usb_driver::Bus for Bus<'_> {
 
 /// Sets or clears an endpoint's STALL handshake.
 fn set_stalled(ep_addr: EndpointAddress, stalled: bool) {
-        let n = ep_addr.index();
-        if n >= ENDPOINTS {
-            return;
+    let n = ep_addr.index();
+    if n >= ENDPOINTS {
+        return;
+    }
+    indexed(n, || {
+        if n == 0 {
+            write8(CSR0L, if stalled { CSR0_SENDSTALL } else { 0 });
+        } else if ep_addr.is_in() {
+            let flush = if read8(TXCSRL) & TX_FIFONE != 0 { TX_FLUSHFIFO } else { 0 };
+            // Stalled: SENDSTALL, the FIFO dropped. Cleared: SENDSTALL
+            // and SENTSTALL off, the toggle back to DATA0.
+            write8(TXCSRL, if stalled { TX_SENDSTALL | TX_KEEP | flush } else { TX_CLRDT | TX_INCOMPTX | TX_FIFONE });
+        } else {
+            write8(RXCSRL, if stalled { RX_SENDSTALL | RX_KEEP } else { RX_CLRDATATOG | RX_OVERRUN | RX_RXPKTRDY });
         }
-        indexed(n, || {
-            if n == 0 {
-                write8(CSR0L, if stalled { CSR0_SENDSTALL } else { 0 });
-            } else if ep_addr.is_in() {
-                let flush = if read8(TXCSRL) & TX_FIFONE != 0 { TX_FLUSHFIFO } else { 0 };
-                // Stalled: SENDSTALL, the FIFO dropped. Cleared: SENDSTALL
-                // and SENTSTALL off, the toggle back to DATA0.
-                write8(TXCSRL, if stalled { TX_SENDSTALL | TX_KEEP | flush } else { TX_CLRDT | TX_INCOMPTX | TX_FIFONE });
-            } else {
-                write8(RXCSRL, if stalled { RX_SENDSTALL | RX_KEEP } else { RX_CLRDATATOG | RX_OVERRUN | RX_RXPKTRDY });
-            }
-        });
-        if ep_addr.is_in() { IN_WAKERS[n].wake() } else { OUT_WAKERS[n].wake() }
+    });
+    if ep_addr.is_in() { IN_WAKERS[n].wake() } else { OUT_WAKERS[n].wake() }
 }
 
 /// Whether an endpoint's STALL handshake is set.
 fn is_stalled(ep_addr: EndpointAddress) -> bool {
-        let n = ep_addr.index();
-        if n >= ENDPOINTS {
-            return false;
-        }
-        indexed(n, || match (n, ep_addr.direction()) {
-            (0, _) => read8(CSR0L) & CSR0_SENDSTALL != 0,
-            (_, Direction::In) => read8(TXCSRL) & TX_SENDSTALL != 0,
-            (_, Direction::Out) => read8(RXCSRL) & RX_SENDSTALL != 0,
-        })
+    let n = ep_addr.index();
+    if n >= ENDPOINTS {
+        return false;
+    }
+    indexed(n, || match (n, ep_addr.direction()) {
+        (0, _) => read8(CSR0L) & CSR0_SENDSTALL != 0,
+        (_, Direction::In) => read8(TXCSRL) & TX_SENDSTALL != 0,
+        (_, Direction::Out) => read8(RXCSRL) & RX_SENDSTALL != 0,
+    })
 }
 
 /// Sets the selected endpoint up from its allocation, empty, unstalled and
@@ -1228,7 +1250,14 @@ mod tests {
     use super::*;
 
     fn driver() -> Driver<'static> {
-        Driver { speed: POWR_HSEN, out_eps: [None; ENDPOINTS], in_eps: [None; ENDPOINTS], fifo_free: EP0_FIFO_BYTES, dma_free: DMA_CHANNELS, _lifetime: PhantomData }
+        Driver {
+            speed: POWR_HSEN,
+            out_eps: [None; ENDPOINTS],
+            in_eps: [None; ENDPOINTS],
+            fifo_free: EP0_FIFO_BYTES,
+            dma_free: DMA_CHANNELS,
+            _lifetime: PhantomData,
+        }
     }
 
     #[test]

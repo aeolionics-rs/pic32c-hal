@@ -26,9 +26,7 @@ impl<RB, const A: usize> Periph<RB, A> {
     #[doc = " peripheral instance existing to ensure memory safety; ensure"]
     #[doc = " no stolen instances are passed to such software."]
     pub unsafe fn steal() -> Self {
-        Self {
-            _marker: marker::PhantomData,
-        }
+        Self { _marker: marker::PhantomData }
     }
 }
 impl<RB, const A: usize> core::ops::Deref for Periph<RB, A> {
@@ -39,16 +37,7 @@ impl<RB, const A: usize> core::ops::Deref for Periph<RB, A> {
     }
 }
 #[doc = " Raw register type (`u8`, `u16`, `u32`, ...)"]
-pub trait RawReg:
-    Copy
-    + From<bool>
-    + core::ops::BitOr<Output = Self>
-    + core::ops::BitAnd<Output = Self>
-    + core::ops::BitOrAssign
-    + core::ops::BitAndAssign
-    + core::ops::Not<Output = Self>
-    + core::ops::Shl<u8, Output = Self>
-{
+pub trait RawReg: Copy + From<bool> + core::ops::BitOr<Output = Self> + core::ops::BitAnd<Output = Self> + core::ops::BitOrAssign + core::ops::BitAndAssign + core::ops::Not<Output = Self> + core::ops::Shl<u8, Output = Self> {
     #[doc = " Mask for bits of width `WI`"]
     fn mask<const WI: u8>() -> Self;
     #[doc = " `0`"]
@@ -242,8 +231,7 @@ pub struct RangeFrom<const MIN: u64>;
 #[doc = " Marker for field writers are safe to write in specified inclusive range"]
 pub struct RangeTo<const MAX: u64>;
 #[doc = " Write field Proxy"]
-pub type FieldWriter<'a, REG, const WI: u8, FI = u8, Safety = Unsafe> =
-    raw::FieldWriter<'a, REG, WI, FI, Safety>;
+pub type FieldWriter<'a, REG, const WI: u8, FI = u8, Safety = Unsafe> = raw::FieldWriter<'a, REG, WI, FI, Safety>;
 impl<REG, const WI: u8, FI, Safety> FieldWriter<'_, REG, WI, FI, Safety>
 where
     REG: Writable + RegisterSpec,
@@ -292,8 +280,7 @@ where
         unsafe { self.bits(value) }
     }
 }
-impl<'a, REG, const WI: u8, FI, const MIN: u64, const MAX: u64>
-    FieldWriter<'a, REG, WI, FI, Range<MIN, MAX>>
+impl<'a, REG, const WI: u8, FI, const MIN: u64, const MAX: u64> FieldWriter<'a, REG, WI, FI, Range<MIN, MAX>>
 where
     REG: Writable + RegisterSpec,
     FI: FieldSpec,
@@ -567,8 +554,7 @@ impl<REG: Resettable + Writable> Reg<REG> {
         F: FnOnce(&mut W<REG>) -> &mut W<REG>,
     {
         let value = f(&mut W {
-            bits: REG::RESET_VALUE & !REG::ONE_TO_MODIFY_FIELDS_BITMAP
-                | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
+            bits: REG::RESET_VALUE & !REG::ONE_TO_MODIFY_FIELDS_BITMAP | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
             _reg: marker::PhantomData,
         })
         .bits;
@@ -609,8 +595,7 @@ impl<REG: Resettable + Writable> Reg<REG> {
         F: FnOnce(&mut W<REG>) -> T,
     {
         let mut writer = W {
-            bits: REG::RESET_VALUE & !REG::ONE_TO_MODIFY_FIELDS_BITMAP
-                | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
+            bits: REG::RESET_VALUE & !REG::ONE_TO_MODIFY_FIELDS_BITMAP | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
             _reg: marker::PhantomData,
         };
         let result = f(&mut writer);
@@ -693,10 +678,7 @@ impl<REG: Readable + Writable> Reg<REG> {
     {
         let bits = self.register.get();
         let value = f(
-            &R {
-                bits,
-                _reg: marker::PhantomData,
-            },
+            &R { bits, _reg: marker::PhantomData },
             &mut W {
                 bits: bits & !REG::ONE_TO_MODIFY_FIELDS_BITMAP | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
                 _reg: marker::PhantomData,
@@ -747,13 +729,7 @@ impl<REG: Readable + Writable> Reg<REG> {
             bits: bits & !REG::ONE_TO_MODIFY_FIELDS_BITMAP | REG::ZERO_TO_MODIFY_FIELDS_BITMAP,
             _reg: marker::PhantomData,
         };
-        let result = f(
-            &R {
-                bits,
-                _reg: marker::PhantomData,
-            },
-            &mut writer,
-        );
+        let result = f(&R { bits, _reg: marker::PhantomData }, &mut writer);
         self.register.set(writer.bits);
         result
     }

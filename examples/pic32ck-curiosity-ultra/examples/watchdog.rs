@@ -27,12 +27,12 @@ use core::fmt::Write;
 use core::time::Duration;
 
 use cortex_m_rt::entry;
-use pic32ck_curiosity_ultra::uart::Uart;
-use pic32ck_curiosity_ultra::time;
 use panic_halt as _;
-use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::bind_interrupts;
+use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::wdt::{self, Error, Period, ResetCause, Watchdog};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 

@@ -7,10 +7,10 @@
 //! in vector order), the peripheral singletons the drivers take so far, and
 //! the 144-pin package's 107 GPIO pins.
 
-#[cfg(feature = "pic32ck2051sg01144")]
-pub use pic32ck_sg01_pac as pac;
 #[cfg(feature = "pic32ck2051gc01144")]
 pub use pic32ck_gc01_pac as pac;
+#[cfg(feature = "pic32ck2051sg01144")]
+pub use pic32ck_sg01_pac as pac;
 
 /// Program flash: two panels of 1 MiB.
 pub const FLASH_SIZE: usize = 2 << 20;

@@ -172,13 +172,19 @@ impl Config {
     /// The clocks as they come out of reset: OSCHF at 4 MHz on generator 0.
     #[must_use]
     pub const fn boot() -> Self {
-        Self { oschf: Oschf::Mhz4, generators: [Some(Generator::new(Source::Oschf)), None, None, None] }
+        Self {
+            oschf: Oschf::Mhz4,
+            generators: [Some(Generator::new(Source::Oschf)), None, None, None],
+        }
     }
 
     /// OSCHF at 24 MHz, undivided, for the CPU on generator 0.
     #[must_use]
     pub const fn oschf_24mhz() -> Self {
-        Self { oschf: Oschf::Mhz24, generators: [Some(Generator::new(Source::Oschf)), None, None, None] }
+        Self {
+            oschf: Oschf::Mhz24,
+            generators: [Some(Generator::new(Source::Oschf)), None, None, None],
+        }
     }
 
     /// The rates this configuration gives, checked.

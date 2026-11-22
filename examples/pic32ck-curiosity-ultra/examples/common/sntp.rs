@@ -133,7 +133,13 @@ async fn ask(socket: &Socket<'_>, server: IpAddr) -> Option<sntpc::NtpResult> {
 
 /// Applies a result: moves the clock by its offset.
 fn apply(source: Source, result: &sntpc::NtpResult) -> Sync {
-    let sync = Sync { source, at: Instant::now().as_secs(), stratum: result.stratum(), offset_us: result.offset(), roundtrip_us: result.roundtrip() };
+    let sync = Sync {
+        source,
+        at: Instant::now().as_secs(),
+        stratum: result.stratum(),
+        offset_us: result.offset(),
+        roundtrip_us: result.roundtrip(),
+    };
     critical_section::with(|cs| {
         let state = STATE.borrow(cs);
         let base = state.get().map_or(0, |(base, _)| base) + result.offset();

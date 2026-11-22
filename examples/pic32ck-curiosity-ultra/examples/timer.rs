@@ -30,14 +30,14 @@
 use core::fmt::Write;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use pic32ck_curiosity_ultra::uart::Uart;
-use pic32ck_curiosity_ultra::time;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, Ticker, Timer};
 use panic_halt as _;
 use pic32c_hal::gpio::{Level, Output};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 

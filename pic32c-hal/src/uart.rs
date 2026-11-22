@@ -26,19 +26,19 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
-use portable_atomic::{AtomicU32, Ordering};
 #[cfg(dma_axi)]
 use core::task::Poll;
+use portable_atomic::{AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{Function, SealedPin, set_function};
 #[cfg(dma_axi)]
 use crate::dma::AnyChannel;
-use crate::sercom::Pad;
+use crate::gpio::{Function, SealedPin, set_function};
+use crate::interrupt::typelevel::Interrupt as TypelevelInterrupt;
 #[cfg(dma_axi)]
 use crate::interrupt::typelevel::{Binding, Handler};
-use crate::interrupt::typelevel::Interrupt as TypelevelInterrupt;
+use crate::sercom::Pad;
 use crate::{Peri, PeripheralType};
 
 const CTRLA: usize = 0x00;
@@ -142,7 +142,14 @@ impl Default for Config {
     /// [`clocks::Config::pll_from_xosc`](crate::clocks::Config::pll_from_xosc)),
     /// the FIFO on.
     fn default() -> Self {
-        Self { baudrate: 115_200, parity: Parity::None, stop_bits: StopBits::One, generator: if cfg!(sercom_v1) { 0 } else { 3 }, fifo: cfg!(sercom_v6), rx_pull: crate::gpio::Pull::None }
+        Self {
+            baudrate: 115_200,
+            parity: Parity::None,
+            stop_bits: StopBits::One,
+            generator: if cfg!(sercom_v1) { 0 } else { 3 },
+            fifo: cfg!(sercom_v6),
+            rx_pull: crate::gpio::Pull::None,
+        }
     }
 }
 
@@ -645,7 +652,6 @@ fn enable_interrupts<T: Instance>() {
 
 #[cfg(dma_axi)]
 impl Uart<'_, Async> {
-
     /// Writes all of `bytes`, by DMA if the UART has it.
     ///
     /// # Errors

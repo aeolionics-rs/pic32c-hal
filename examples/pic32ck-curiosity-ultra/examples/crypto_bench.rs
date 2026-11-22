@@ -18,8 +18,6 @@ use core::cell::RefCell;
 use core::fmt::Write;
 
 use critical_section::Mutex;
-use pic32ck_curiosity_ultra::time;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use getrandom::rand_core::UnwrapErr;
 use p256::ecdsa::signature::RandomizedSigner;
@@ -28,6 +26,8 @@ use p256::pkcs8::DecodePrivateKey as _;
 use panic_halt as _;
 use pic32c_hal::bind_interrupts;
 use pic32c_hal::trng::{self, Trng};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 use sha2::Digest as _;
 
 pic32ck_curiosity_ultra::boot!();
@@ -121,25 +121,34 @@ async fn main(_spawner: Spawner) {
 
     // X25519: our key share (a base-point multiplication), then the shared
     // secret (a variable-point one).
-    report("x25519 key share", time(|| {
-        let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut rng);
-        x25519_dalek::PublicKey::from(&secret)
-    }));
+    report(
+        "x25519 key share",
+        time(|| {
+            let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut rng);
+            x25519_dalek::PublicKey::from(&secret)
+        }),
+    );
     let peer = x25519_dalek::PublicKey::from(&x25519_dalek::EphemeralSecret::random_from_rng(&mut rng));
-    report("x25519 shared secret", time(|| {
-        let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut rng);
-        secret.diffie_hellman(&peer)
-    }));
+    report(
+        "x25519 shared secret",
+        time(|| {
+            let secret = x25519_dalek::EphemeralSecret::random_from_rng(&mut rng);
+            secret.diffie_hellman(&peer)
+        }),
+    );
 
     // salty's X25519 (Haase's assembly): the key share is a multiplication of
     // the base point u = 9, the secret one of the peer's point.
     let mut base = [0u8; 32];
     base[0] = 9;
     let mut seed = [0u8; 32];
-    report("salty x25519 key share", time(|| {
-        getrandom::fill(&mut seed).unwrap();
-        salty::agreement::x25519(seed, base)
-    }));
+    report(
+        "salty x25519 key share",
+        time(|| {
+            getrandom::fill(&mut seed).unwrap();
+            salty::agreement::x25519(seed, base)
+        }),
+    );
     let their_u = salty::agreement::x25519([7; 32], base);
     report("salty x25519 shared secret", time(|| salty::agreement::x25519(seed, their_u)));
     // Cross-check against x25519-dalek.
@@ -148,32 +157,44 @@ async fn main(_spawner: Spawner) {
     let _ = writeln!(Uart, "salty and x25519-dalek agree: {same}");
 
     // P-256 the same way.
-    report("p256 key share", time(|| {
-        let secret = p256::ecdh::EphemeralSecret::try_generate_from_rng(&mut rng).unwrap();
-        p256::PublicKey::from(&secret).to_sec1_bytes()
-    }));
+    report(
+        "p256 key share",
+        time(|| {
+            let secret = p256::ecdh::EphemeralSecret::try_generate_from_rng(&mut rng).unwrap();
+            p256::PublicKey::from(&secret).to_sec1_bytes()
+        }),
+    );
     let peer = p256::PublicKey::from(&p256::ecdh::EphemeralSecret::try_generate_from_rng(&mut rng).unwrap());
-    report("p256 shared secret", time(|| {
-        let secret = p256::ecdh::EphemeralSecret::try_generate_from_rng(&mut rng).unwrap();
-        secret.diffie_hellman(&peer)
-    }));
+    report(
+        "p256 shared secret",
+        time(|| {
+            let secret = p256::ecdh::EphemeralSecret::try_generate_from_rng(&mut rng).unwrap();
+            secret.diffie_hellman(&peer)
+        }),
+    );
 
     // The CertificateVerify signature: randomized ECDSA P-256 over the
     // 130-byte TLS 1.3 signed content, as rustls-rustcrypto signs.
     let key = p256::ecdsa::SigningKey::from_pkcs8_der(KEY).unwrap();
     let message = [0x20u8; 130];
-    report("p256 ecdsa sign", time(|| {
-        let signature: p256::ecdsa::DerSignature = key.try_sign_with_rng(&mut rng, &message).unwrap();
-        signature
-    }));
+    report(
+        "p256 ecdsa sign",
+        time(|| {
+            let signature: p256::ecdsa::DerSignature = key.try_sign_with_rng(&mut rng, &message).unwrap();
+            signature
+        }),
+    );
     // The same with P256-Cortex-M4 (assembly), its RNG the TRNG through
     // getrandom, over a SHA-256 prehash as a TLS signer would pass it.
     let mut rng06 = Getrandom06;
     let secret = p256_cortex_m4::SecretKey::from_bytes(key.to_bytes()).unwrap();
-    report("p256-cortex-m4 ecdsa sign", time(|| {
-        let digest = sha2::Sha256::digest(message);
-        secret.sign_prehashed(&digest, &mut rng06)
-    }));
+    report(
+        "p256-cortex-m4 ecdsa sign",
+        time(|| {
+            let digest = sha2::Sha256::digest(message);
+            secret.sign_prehashed(&digest, &mut rng06)
+        }),
+    );
     report("p256-cortex-m4 key share", time(|| p256_cortex_m4::SecretKey::random(&mut rng06).public_key()));
     let theirs = p256_cortex_m4::SecretKey::random(&mut rng06).public_key();
     report("p256-cortex-m4 shared secret", time(|| p256_cortex_m4::SecretKey::random(&mut rng06).agree(&theirs)));

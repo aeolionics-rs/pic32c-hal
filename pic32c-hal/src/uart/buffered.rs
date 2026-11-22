@@ -17,8 +17,8 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
+use portable_atomic::{AtomicBool, AtomicU8, Ordering};
 
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 

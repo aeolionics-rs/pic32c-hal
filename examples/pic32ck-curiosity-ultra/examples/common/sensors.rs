@@ -103,11 +103,23 @@ impl Bmx280 {
             let (e4, e6, h6) = (i64::from(h[3] as i8), i64::from(h[5] as i8), i64::from(h[6] as i8));
             // H4 is 0xE4 (signed) above 0xE5's low nibble, H5 0xE6 (signed)
             // above its high nibble.
-            Some([i64::from(h1[0]), i64::from(i16::from_le_bytes([h[0], h[1]])), i64::from(h[2]), (e4 << 4) | i64::from(h[4] & 0x0F), (e6 << 4) | i64::from(h[4] >> 4), h6])
+            Some([
+                i64::from(h1[0]),
+                i64::from(i16::from_le_bytes([h[0], h[1]])),
+                i64::from(h[2]),
+                (e4 << 4) | i64::from(h[4] & 0x0F),
+                (e6 << 4) | i64::from(h[4] >> 4),
+                h6,
+            ])
         } else {
             None
         };
-        Ok(Self { address, t: [u(0), s(2), s(4)], p: [u(6), s(8), s(10), s(12), s(14), s(16), s(18), s(20), s(22)], h })
+        Ok(Self {
+            address,
+            t: [u(0), s(2), s(4)],
+            p: [u(6), s(8), s(10), s(12), s(14), s(16), s(18), s(20), s(22)],
+            h,
+        })
     }
 
     /// A forced measurement: humidity x1 on the BME280 (`ctrl_hum` takes

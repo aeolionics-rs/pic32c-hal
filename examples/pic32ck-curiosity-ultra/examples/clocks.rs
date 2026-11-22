@@ -14,12 +14,11 @@
 use core::fmt::Write;
 
 use cortex_m_rt::entry;
-use pic32ck_curiosity_ultra::{clocks, crumb, time, uart::Uart};
 use panic_halt as _;
 use pic32c_hal::gpio::{Level, Output};
+use pic32ck_curiosity_ultra::{clocks, crumb, time, uart::Uart};
 
 pic32ck_curiosity_ultra::boot!();
-
 
 #[entry]
 fn main() -> ! {

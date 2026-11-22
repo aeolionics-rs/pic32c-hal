@@ -123,7 +123,12 @@ async fn main(_spawner: Spawner) {
     time::init(cortex_m::Peripherals::take().unwrap());
     let mut log = Log::init(p.SERCOM5, p.PA24, p.PA25);
     let mut led = Output::new(p.PD20, Level::High);
-    let _ = writeln!(log, "\npic32ck-curiosity-ultra uart_peer at {BAUD} baud: up to {CHUNK} bytes a round, gathered for {} ms, then {} ms paused", GATHER.as_millis(), PAUSE.as_millis());
+    let _ = writeln!(
+        log,
+        "\npic32ck-curiosity-ultra uart_peer at {BAUD} baud: up to {CHUNK} bytes a round, gathered for {} ms, then {} ms paused",
+        GATHER.as_millis(),
+        PAUSE.as_millis()
+    );
     let mut config = uart::Config::default();
     config.baudrate = BAUD;
     let (mut tx_ring, mut rx_ring) = ([0u8; 1024], [0u8; 2048]);

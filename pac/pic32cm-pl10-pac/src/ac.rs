@@ -68,25 +68,13 @@ impl RegisterBlock {
     pub const fn comp(&self, n: usize) -> &Comp {
         #[allow(clippy::no_effect)]
         [(); 2][n];
-        unsafe {
-            &*core::ptr::from_ref(self)
-                .cast::<u8>()
-                .add(64)
-                .add(16 * n)
-                .cast()
-        }
+        unsafe { &*core::ptr::from_ref(self).cast::<u8>().add(64).add(16 * n).cast() }
     }
     #[doc = "Iterator for array of:"]
     #[doc = "0x40..0x58 - COMP\\[%s\\]"]
     #[inline(always)]
     pub fn comp_iter(&self) -> impl Iterator<Item = &Comp> {
-        (0..2).map(move |n| unsafe {
-            &*core::ptr::from_ref(self)
-                .cast::<u8>()
-                .add(64)
-                .add(16 * n)
-                .cast()
-        })
+        (0..2).map(move |n| unsafe { &*core::ptr::from_ref(self).cast::<u8>().add(64).add(16 * n).cast() })
     }
     #[doc = "0x80 - Write Protection Control"]
     #[inline(always)]

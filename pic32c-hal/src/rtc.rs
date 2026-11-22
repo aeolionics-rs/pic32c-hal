@@ -104,7 +104,11 @@ pub struct Config {
 impl Default for Config {
     /// The crystal, 250 ms to start, at the highest gain.
     fn default() -> Self {
-        Self { source: Source::Crystal, crystal_startup: 5, crystal_gain: 15 }
+        Self {
+            source: Source::Crystal,
+            crystal_startup: 5,
+            crystal_gain: 15,
+        }
     }
 }
 
@@ -161,9 +165,23 @@ const fn days_from_civil(year: u16, month: u8, day: u8) -> i64 {
 
 impl DateTime {
     /// The first the calendar holds.
-    pub const MIN: Self = Self { year: 2000, month: 1, day: 1, hour: 0, minute: 0, second: 0 };
+    pub const MIN: Self = Self {
+        year: 2000,
+        month: 1,
+        day: 1,
+        hour: 0,
+        minute: 0,
+        second: 0,
+    };
     /// The last.
-    pub const MAX: Self = Self { year: 2063, month: 12, day: 31, hour: 23, minute: 59, second: 59 };
+    pub const MAX: Self = Self {
+        year: 2063,
+        month: 12,
+        day: 31,
+        hour: 23,
+        minute: 59,
+        second: 59,
+    };
 
     /// A date and time.
     ///
@@ -241,7 +259,15 @@ impl DateTime {
 
     /// From that layout, if it holds a valid date and time.
     fn from_register(value: u32) -> Option<Self> {
-        Self::new(2000 + (value >> 26) as u16, ((value >> 22) & 0xF) as u8, ((value >> 17) & 0x1F) as u8, ((value >> 12) & 0x1F) as u8, ((value >> 6) & 0x3F) as u8, (value & 0x3F) as u8).ok()
+        Self::new(
+            2000 + (value >> 26) as u16,
+            ((value >> 22) & 0xF) as u8,
+            ((value >> 17) & 0x1F) as u8,
+            ((value >> 12) & 0x1F) as u8,
+            ((value >> 6) & 0x3F) as u8,
+            (value & 0x3F) as u8,
+        )
+        .ok()
     }
 }
 
@@ -291,9 +317,7 @@ impl<'d> Rtc<'d> {
             Source::UltraLowPower => RTCSEL_ULP1K,
         };
         let ctrla = MODE_CLOCK | PRESCALER_1024 | CLOCKSYNC;
-        let running = read16(CTRLA) & (ENABLE | MODE_MASK | PRESCALER_MASK | CLOCKSYNC) == ctrla | ENABLE
-            && read32(CLKSELCTRL) & RTCSEL_MASK == rtcsel
-            && (config.source == Source::UltraLowPower || read32(OSC_STATUS) & XOSC32KRDY != 0);
+        let running = read16(CTRLA) & (ENABLE | MODE_MASK | PRESCALER_MASK | CLOCKSYNC) == ctrla | ENABLE && read32(CLKSELCTRL) & RTCSEL_MASK == rtcsel && (config.source == Source::UltraLowPower || read32(OSC_STATUS) & XOSC32KRDY != 0);
         if !running {
             if config.source == Source::Crystal {
                 start_crystal(config.crystal_startup, config.crystal_gain)?;

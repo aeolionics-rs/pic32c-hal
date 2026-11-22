@@ -15,14 +15,14 @@
 
 use core::fmt::Write;
 
-use pic32ck_curiosity_ultra::uart::Uart;
-use pic32ck_curiosity_ultra::{clocks, time};
 use embassy_executor::Spawner;
 use embassy_usb::class::cdc_acm::device::{self as cdc_acm, CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config};
-use pic32c_hal::{bind_interrupts, usb};
 use panic_halt as _;
+use pic32c_hal::{bind_interrupts, usb};
+use pic32ck_curiosity_ultra::uart::Uart;
+use pic32ck_curiosity_ultra::{clocks, time};
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -94,7 +94,18 @@ async fn main(_spawner: Spawner) {
             let _ = writeln!(
                 log,
                 "usb: CTRLA {:#04x} CTRLB {:#06x} FSM {:#04x} STATUS {:#04x} INTFLAG {:#06x} INTEN {:#06x} DADD {:#04x} EP0 CFG {:#04x} STATUS {:#04x} FLAG {:#04x} EN {:#04x} PADCAL {:#06x}",
-                r8(0), r16(8), r8(0x0D), r8(0x0C), r16(0x1C), r16(0x18), r8(0x0A), r8(0x100), r8(0x106), r8(0x107), r8(0x109), r16(0x28)
+                r8(0),
+                r16(8),
+                r8(0x0D),
+                r8(0x0C),
+                r16(0x1C),
+                r16(0x18),
+                r8(0x0A),
+                r8(0x100),
+                r8(0x106),
+                r8(0x107),
+                r8(0x109),
+                r16(0x28)
             );
         }
     };

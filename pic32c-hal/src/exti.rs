@@ -128,8 +128,22 @@ macro_rules! vectors {
 }
 
 vectors!(
-    EIC_EXTINT_0 = 0, EIC_EXTINT_1 = 1, EIC_EXTINT_2 = 2, EIC_EXTINT_3 = 3, EIC_EXTINT_4 = 4, EIC_EXTINT_5 = 5, EIC_EXTINT_6 = 6, EIC_EXTINT_7 = 7,
-    EIC_EXTINT_8 = 8, EIC_EXTINT_9 = 9, EIC_EXTINT_10 = 10, EIC_EXTINT_11 = 11, EIC_EXTINT_12 = 12, EIC_EXTINT_13 = 13, EIC_EXTINT_14 = 14, EIC_EXTINT_15 = 15
+    EIC_EXTINT_0 = 0,
+    EIC_EXTINT_1 = 1,
+    EIC_EXTINT_2 = 2,
+    EIC_EXTINT_3 = 3,
+    EIC_EXTINT_4 = 4,
+    EIC_EXTINT_5 = 5,
+    EIC_EXTINT_6 = 6,
+    EIC_EXTINT_7 = 7,
+    EIC_EXTINT_8 = 8,
+    EIC_EXTINT_9 = 9,
+    EIC_EXTINT_10 = 10,
+    EIC_EXTINT_11 = 11,
+    EIC_EXTINT_12 = 12,
+    EIC_EXTINT_13 = 13,
+    EIC_EXTINT_14 = 14,
+    EIC_EXTINT_15 = 15
 );
 
 /// An EIC line.
@@ -413,4 +427,3 @@ impl Drop for Nmi<'_> {
         write8(NMICTRL, 0);
     }
 }
-

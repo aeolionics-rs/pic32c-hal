@@ -16,10 +16,10 @@
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 
+use embassy_net::Stack;
 use embassy_net::iface::{AddrOrigin, Iface};
 use embassy_net::tcp::{AcceptError, TcpListener, TcpSocket};
 use embassy_net::wire::{HardwareAddress, IpCidr, Ipv4Cidr, Ipv6Cidr};
-use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 

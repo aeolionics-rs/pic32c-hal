@@ -216,7 +216,14 @@ async fn main(_spawner: Spawner) {
 fn registers() -> Registers {
     let r8 = |offset: usize| unsafe { core::ptr::read_volatile((0x4600_0000 + offset) as *const u8) };
     let r32 = |offset: usize| unsafe { core::ptr::read_volatile((0x4600_0000 + offset) as *const u32) };
-    Registers { status: r32(0x18), intflag: r32(0x14), powr: r8(0x1001), devctl: r8(0x1060), faddr: r8(0x1000), raminfo: r8(0x1079) }
+    Registers {
+        status: r32(0x18),
+        intflag: r32(0x14),
+        powr: r8(0x1001),
+        devctl: r8(0x1060),
+        faddr: r8(0x1000),
+        raminfo: r8(0x1079),
+    }
 }
 
 struct Registers {

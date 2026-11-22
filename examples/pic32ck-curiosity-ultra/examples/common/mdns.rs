@@ -108,19 +108,15 @@ pub async fn run(iface: Iface<'_>, name: &str, advert: Advert, seed: u64) -> ! {
     };
     let (rx, tx) = socket.split();
     let signal = Signal::<NoopRawMutex, ()>::new();
-    let mdns = io::Mdns::<_, _, _, _, _, NoopRawMutex>::new(
-        Some(Ipv4Addr::UNSPECIFIED),
-        Some(0),
-        rx,
-        tx,
-        &recv_buf,
-        &send_buf,
-        Jitter(seed | 1),
-        &signal,
-    );
+    let mdns = io::Mdns::<_, _, _, _, _, NoopRawMutex>::new(Some(Ipv4Addr::UNSPECIFIED), Some(0), rx, tx, &recv_buf, &send_buf, Jitter(seed | 1), &signal);
     loop {
         let (ipv4, ipv6) = addresses(iface);
-        let host = Host { hostname: name, ipv4, ipv6, ttl: Ttl::from_secs(120) };
+        let host = Host {
+            hostname: name,
+            ipv4,
+            ipv6,
+            ttl: Ttl::from_secs(120),
+        };
         let service = Service {
             name,
             priority: 0,

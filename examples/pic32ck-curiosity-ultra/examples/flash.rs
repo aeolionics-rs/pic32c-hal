@@ -27,12 +27,12 @@ use core::fmt::Write;
 use core::time::Duration;
 
 use cortex_m_rt::entry;
-use pic32ck_curiosity_ultra::uart::Uart;
-use pic32ck_curiosity_ultra::time;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use panic_halt as _;
-use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::flash::{Error, Flash, PAGE_SIZE, ROW_SIZE, WORD_SIZE};
+use pic32c_hal::gpio::{Level, Output};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -82,7 +82,12 @@ fn main() -> ! {
     let led = Output::new(peripherals.PD20, Level::High);
     time::init(cortex_m::Peripherals::take().unwrap());
     let mut log = Uart::init(peripherals.SERCOM5, peripherals.PA24, peripherals.PA25);
-    let _ = writeln!(log, "\npic32ck-curiosity-ultra flash: CPU {} Hz, cache {}", pic32c_hal::clocks::generator_hz(0).unwrap_or(0), if pic32c_hal::cache::is_enabled() { "on" } else { "off" });
+    let _ = writeln!(
+        log,
+        "\npic32ck-curiosity-ultra flash: CPU {} Hz, cache {}",
+        pic32c_hal::clocks::generator_hz(0).unwrap_or(0),
+        if pic32c_hal::cache::is_enabled() { "on" } else { "off" }
+    );
     let r = |address: usize| unsafe { core::ptr::read_volatile(address as *const u32) };
     let _ = writeln!(
         log,

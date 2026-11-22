@@ -20,10 +20,7 @@ impl<FI: FieldSpec> FieldReader<FI> {
     #[allow(unused)]
     #[inline(always)]
     pub(crate) const fn new(bits: FI::Ux) -> Self {
-        Self {
-            bits,
-            _reg: marker::PhantomData,
-        }
+        Self { bits, _reg: marker::PhantomData }
     }
 }
 pub struct BitReader<FI = bool> {
@@ -35,10 +32,7 @@ impl<FI> BitReader<FI> {
     #[allow(unused)]
     #[inline(always)]
     pub(crate) const fn new(bits: bool) -> Self {
-        Self {
-            bits,
-            _reg: marker::PhantomData,
-        }
+        Self { bits, _reg: marker::PhantomData }
     }
 }
 #[must_use = "after creating `FieldWriter` you need to call field value setting method"]
@@ -60,11 +54,7 @@ where
     #[allow(unused)]
     #[inline(always)]
     pub(crate) fn new(w: &'a mut W<REG>, o: u8) -> Self {
-        Self {
-            w,
-            o,
-            _field: marker::PhantomData,
-        }
+        Self { w, o, _field: marker::PhantomData }
     }
 }
 #[must_use = "after creating `BitWriter` you need to call bit setting method"]
@@ -86,10 +76,6 @@ where
     #[allow(unused)]
     #[inline(always)]
     pub(crate) fn new(w: &'a mut W<REG>, o: u8) -> Self {
-        Self {
-            w,
-            o,
-            _field: marker::PhantomData,
-        }
+        Self { w, o, _field: marker::PhantomData }
     }
 }

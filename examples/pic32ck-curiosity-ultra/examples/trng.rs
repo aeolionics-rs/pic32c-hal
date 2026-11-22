@@ -19,12 +19,12 @@
 use core::fmt::Write;
 use core::ptr::read_volatile;
 
-use pic32ck_curiosity_ultra::time;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use panic_halt as _;
 use pic32c_hal::bind_interrupts;
 use pic32c_hal::trng::{self, Trng};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -48,7 +48,15 @@ struct Stats {
 
 impl Stats {
     const fn new() -> Self {
-        Self { ones: 0, bytes: [0; 256], run: 0, longest: 0, last_bit: false, last_word: None, repeats: 0 }
+        Self {
+            ones: 0,
+            bytes: [0; 256],
+            run: 0,
+            longest: 0,
+            last_bit: false,
+            last_word: None,
+            repeats: 0,
+        }
     }
 
     fn add(&mut self, word: u32) {

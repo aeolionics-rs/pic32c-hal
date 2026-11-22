@@ -192,13 +192,7 @@ async fn main(spawner: Spawner) {
                 up = iface.is_link_up();
                 let _ = writeln!(log, "link {}, high speed: {}", if up { "up" } else { "down" }, usbhs::is_high_speed());
             }
-            let _ = writeln!(
-                log,
-                "echoed {} discarded {} generated {}",
-                ECHOED.load(Ordering::Relaxed),
-                DISCARDED.load(Ordering::Relaxed),
-                GENERATED.load(Ordering::Relaxed)
-            );
+            let _ = writeln!(log, "echoed {} discarded {} generated {}", ECHOED.load(Ordering::Relaxed), DISCARDED.load(Ordering::Relaxed), GENERATED.load(Ordering::Relaxed));
         }
     };
     #[expect(clippy::large_futures, reason = "main's future lives in the executor's static task storage, not on a stack")]

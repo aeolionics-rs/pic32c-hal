@@ -24,8 +24,6 @@
 use core::fmt::Write;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use pic32ck_curiosity_ultra::time;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
@@ -34,6 +32,8 @@ use panic_halt as _;
 use pic32c_hal::bind_interrupts;
 use pic32c_hal::flash::{self, Async, Flash, PAGE_SIZE, ROW_SIZE};
 use pic32c_hal::gpio::{Level, Output};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -134,8 +134,7 @@ async fn tests(flash: &mut Flash<'_, Async>, log: &mut Uart) -> u32 {
     check("flash-word writes from flash", result.is_ok() && back == PATTERN, format_args!("256 B in {us} us, ticker {ticks} ({result:?})"));
 
     // Misaligned and out-of-range writes are refused.
-    let refused = matches!(flash.write(PANEL2 + 16, &PATTERN[..32]).await, Err(flash::Error::NotAligned))
-        && matches!(flash.erase(0x1F_F000, 0x20_1000).await, Err(flash::Error::OutOfBounds));
+    let refused = matches!(flash.write(PANEL2 + 16, &PATTERN[..32]).await, Err(flash::Error::NotAligned)) && matches!(flash.erase(0x1F_F000, 0x20_1000).await, Err(flash::Error::OutOfBounds));
     check("misaligned and out-of-range refused", refused, format_args!(""));
 
     // A dropped erase: the page must still end erased, and the flash work.

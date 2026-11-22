@@ -15,23 +15,7 @@ pub const FLASH_SIZE: usize = 64 << 10;
 /// PORT, on the IOBUS-free APB view.
 pub(crate) const PORT: usize = 0x4100_0000;
 
-embassy_hal_internal::interrupt_mod!(
-    SYSTEM,
-    WDT,
-    RTC,
-    EIC,
-    NVMCTRL,
-    DMAC,
-    EVSYS,
-    SERCOM0,
-    SERCOM1,
-    TC0,
-    TC1,
-    TC2,
-    TCC0,
-    ADC0,
-    AC,
-);
+embassy_hal_internal::interrupt_mod!(SYSTEM, WDT, RTC, EIC, NVMCTRL, DMAC, EVSYS, SERCOM0, SERCOM1, TC0, TC1, TC2, TCC0, ADC0, AC,);
 
 embassy_hal_internal::peripherals!(
     PA00,

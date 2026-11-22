@@ -480,7 +480,12 @@ impl<'d> Ethernet<'d> {
         write(NCFGR, NCFGR_CLK_DIV64 | NCFGR_DBW64 | NCFGR_MTIHEN | NCFGR_MAXFS | NCFGR_RFCS | NCFGR_SPD | NCFGR_FD);
         write(DCFGR, DCFGR_VALUE);
 
-        let PacketQueue { tx_descriptors, rx_descriptors, tx_buffers, rx_buffers } = queue;
+        let PacketQueue {
+            tx_descriptors,
+            rx_descriptors,
+            tx_buffers,
+            rx_buffers,
+        } = queue;
         // Every receive slot starts empty and software's, so the DMA waits
         // for the stack's first buffers.
         for (i, descriptor) in rx_descriptors.iter_mut().enumerate() {
@@ -522,8 +527,20 @@ impl<'d> Ethernet<'d> {
         write(NCR, NCR_MPE | NCR_RXEN | NCR_TXEN);
 
         Ok(Self {
-            rx: RxRing { descriptors: rx_descriptors, buffers: rx_buffers, next: 0, fill: 0, empty: RX },
-            tx: TxRing { descriptors: tx_descriptors, buffers: tx_buffers, next: 0, reclaim: 0, in_flight: 0 },
+            rx: RxRing {
+                descriptors: rx_descriptors,
+                buffers: rx_buffers,
+                next: 0,
+                fill: 0,
+                empty: RX,
+            },
+            tx: TxRing {
+                descriptors: tx_descriptors,
+                buffers: tx_buffers,
+                next: 0,
+                reclaim: 0,
+                in_flight: 0,
+            },
             mac,
             phy,
             phy_id,

@@ -69,8 +69,8 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::Function;
-use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::mode::{Async, Blocking};
 use crate::{Peri, peripherals};
 
@@ -226,7 +226,11 @@ pub struct Config {
 impl Default for Config {
     /// 12 bits against AVDD, from generator 3.
     fn default() -> Self {
-        Self { resolution: Resolution::Bits12, reference: Reference::Avdd, generator: 3 }
+        Self {
+            resolution: Resolution::Bits12,
+            reference: Reference::Avdd,
+            generator: 3,
+        }
     }
 }
 
@@ -258,7 +262,10 @@ pub trait AdcChannel: SealedAdcChannel + Sized {
         Self: 'a,
     {
         self.setup();
-        AnyAdcChannel { channel: self.channel(), _lifetime: PhantomData }
+        AnyAdcChannel {
+            channel: self.channel(),
+            _lifetime: PhantomData,
+        }
     }
 }
 
@@ -318,10 +325,7 @@ macro_rules! impl_adc_pin {
 }
 
 // VINP0-11 (the ATDF's ADC signals, function B), the same on both chips.
-impl_adc_pin!(
-    PA04 = 0, PA05 = 1, PA06 = 2, PA07 = 3, PA08 = 4, PA09 = 5, PA10 = 6, PA11 = 7, PA12 = 8, PB00 = 9, PB11 = 10,
-    PB12 = 11,
-);
+impl_adc_pin!(PA04 = 0, PA05 = 1, PA06 = 2, PA07 = 3, PA08 = 4, PA09 = 5, PA10 = 6, PA11 = 7, PA12 = 8, PB00 = 9, PB11 = 10, PB12 = 11,);
 
 /// The factory's readings, from the CAL OTP (DS60001795 section 27.6.10):
 /// the temperature sensor (PTAT) and the buffered bandgap at two
@@ -442,11 +446,7 @@ impl<'d> Adc<'d, Async> {
     /// # Errors
     ///
     /// See [`ConfigError`].
-    pub fn new(
-        adc: Peri<'d, peripherals::ADC>,
-        _irqs: impl Binding<typelevel::ADC_CORE1, InterruptHandler> + 'd,
-        config: Config,
-    ) -> Result<Self, ConfigError> {
+    pub fn new(adc: Peri<'d, peripherals::ADC>, _irqs: impl Binding<typelevel::ADC_CORE1, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
         let adc = Self::setup(adc, config)?;
         let irq = crate::interrupt::ADC_CORE1;
         irq.unpend();
@@ -510,7 +510,12 @@ impl<'d, M> Adc<'d, M> {
             return Err(ConfigError::Core);
         }
         write_ctrlb(SWCNVEN);
-        Ok(Self { resolution: config.resolution, cpu_per_tad: cpu.div_ceil(tad.max(1)), _peripheral: PhantomData, _mode: PhantomData })
+        Ok(Self {
+            resolution: config.resolution,
+            cpu_per_tad: cpu.div_ceil(tad.max(1)),
+            _peripheral: PhantomData,
+            _mode: PhantomData,
+        })
     }
 
     /// The result's width.

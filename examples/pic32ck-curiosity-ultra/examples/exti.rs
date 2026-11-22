@@ -28,8 +28,6 @@
 use core::fmt::Write;
 use core::future::Future;
 
-use pic32ck_curiosity_ultra::time;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer, with_timeout};
@@ -37,6 +35,8 @@ use panic_halt as _;
 use pic32c_hal::exti::ExtiInput;
 use pic32c_hal::gpio::{Level, Output, Pull};
 use pic32c_hal::pac;
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -102,7 +102,11 @@ async fn main(_spawner: Spawner) {
         // A hundred edges back to back, each awaited.
         let mut missed = 0;
         for n in 0..100 {
-            let caught = if n % 2 == 0 { caught(pin.wait_for_rising_edge(), pull_up).await } else { caught(pin.wait_for_falling_edge(), pull_down).await };
+            let caught = if n % 2 == 0 {
+                caught(pin.wait_for_rising_edge(), pull_up).await
+            } else {
+                caught(pin.wait_for_falling_edge(), pull_down).await
+            };
             missed += u32::from(!caught);
         }
         let _ = writeln!(log, "100 alternate edges: {missed} missed");
@@ -116,7 +120,12 @@ async fn main(_spawner: Spawner) {
     let mut sw0 = ExtiInput::new(p.PB26, p.EXTINT10, Pull::None);
     let high = with_timeout(Duration::from_millis(10), sw0.wait_for_high()).await.is_ok();
     let low = with_timeout(Duration::from_millis(200), sw0.wait_for_low()).await.is_ok();
-    let _ = writeln!(log, "SW0 released: wait_for_high {}, wait_for_low {}", if high { "at once" } else { "NOT at once" }, if low { "ENDED (pressed?)" } else { "still waiting after 200 ms" });
+    let _ = writeln!(
+        log,
+        "SW0 released: wait_for_high {}, wait_for_low {}",
+        if high { "at once" } else { "NOT at once" },
+        if low { "ENDED (pressed?)" } else { "still waiting after 200 ms" }
+    );
     failures += u32::from(!high || low);
 
     let _ = writeln!(log, "press SW0 within 10 s");

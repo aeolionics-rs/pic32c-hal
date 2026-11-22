@@ -20,10 +20,10 @@ use core::fmt::Write;
 #[path = "common/net.rs"]
 mod net;
 
+use core::net::{Ipv4Addr, SocketAddr};
+use embassy_executor::Spawner;
 use pic32ck_curiosity_ultra::clocks;
 use pic32ck_curiosity_ultra::uart::Uart;
-use embassy_executor::Spawner;
-use core::net::{Ipv4Addr, SocketAddr};
 
 use embassy_net::dns::DnsQueryType;
 use embassy_net::iface::dhcpv4::DhcpConfig;
@@ -67,7 +67,18 @@ async fn main(spawner: Spawner) {
     let mac = [0x02, id[1], id[2], id[3], id[4], id[5]];
     let _ = writeln!(log, "MAC {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    let pins = Pins { ref_clk: p.PC00, mdc: p.PC03, mdio: p.PC04, crs_dv: p.PC10, rx_er: p.PC09, rxd0: p.PC07, rxd1: p.PC06, tx_en: p.PC11, txd0: p.PC12, txd1: p.PC13 };
+    let pins = Pins {
+        ref_clk: p.PC00,
+        mdc: p.PC03,
+        mdio: p.PC04,
+        crs_dv: p.PC10,
+        rx_er: p.PC09,
+        rxd0: p.PC07,
+        rxd1: p.PC06,
+        tx_en: p.PC11,
+        txd0: p.PC12,
+        txd1: p.PC13,
+    };
     let ethernet = match Ethernet::new(p.ETH, Irqs, pins, p.PD21, QUEUE.init(PacketQueue::new()), mac, clocks::GEN_TIMER).await {
         Ok(ethernet) => ethernet,
         Err(e) => {

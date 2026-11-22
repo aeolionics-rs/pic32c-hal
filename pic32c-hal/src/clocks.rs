@@ -289,7 +289,12 @@ impl Config {
         generators[4] = Some(Generator::divided(Source::Pll0(4), 3));
         Self {
             xosc: Some(xosc),
-            pll0: Some(Pll0 { reference: PllReference::Xosc, refdiv, fbdiv, outputs: [None, Some(8), Some(12), Some(20), None] }),
+            pll0: Some(Pll0 {
+                reference: PllReference::Xosc,
+                refdiv,
+                fbdiv,
+                outputs: [None, Some(8), Some(12), Some(20), None],
+            }),
             generators,
         }
     }
@@ -321,7 +326,12 @@ impl Config {
         generators[4] = Some(Generator::divided(Source::Pll0(2), 3));
         Self {
             xosc: Some(xosc),
-            pll0: Some(Pll0 { reference: PllReference::Xosc, refdiv, fbdiv, outputs: [Some(20), Some(36), Some(30), None, None] }),
+            pll0: Some(Pll0 {
+                reference: PllReference::Xosc,
+                refdiv,
+                fbdiv,
+                outputs: [Some(20), Some(36), Some(30), None, None],
+            }),
             generators,
         }
     }

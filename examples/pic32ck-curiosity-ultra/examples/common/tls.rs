@@ -252,14 +252,7 @@ pub struct TlsSocket<'s, 'd, 'b> {
 ///
 /// # Errors
 /// The handshake's failure, or the TCP connection's.
-pub async fn accept<'s, 'd, 'b>(
-    mut socket: TcpSocket<'s, 'd>,
-    config: Arc<ServerConfig>,
-    rx: &'b mut [u8],
-    plain: &'b mut [u8],
-    tx: &'b mut [u8],
-    out: &'b mut [u8],
-) -> Result<TlsSocket<'s, 'd, 'b>, Error> {
+pub async fn accept<'s, 'd, 'b>(mut socket: TcpSocket<'s, 'd>, config: Arc<ServerConfig>, rx: &'b mut [u8], plain: &'b mut [u8], tx: &'b mut [u8], out: &'b mut [u8]) -> Result<TlsSocket<'s, 'd, 'b>, Error> {
     let mut core = Core {
         conn: UnbufferedServerConnection::new(config)?,
         rx,
@@ -296,7 +289,13 @@ pub async fn accept<'s, 'd, 'b>(
                     socket.write_all(&tx[..filled]).await?;
                     socket.flush().await?;
                 }
-                return Ok(TlsSocket { socket, core: RefCell::new(core), tx, out, out_len: 0 });
+                return Ok(TlsSocket {
+                    socket,
+                    core: RefCell::new(core),
+                    tx,
+                    out,
+                    out_len: 0,
+                });
             }
             Step::Closed => return Err(Error::Eof),
             Step::Wrote => {}
@@ -486,15 +485,17 @@ impl<'d, 'b> picoserve::io::Socket<picoserve::EmbassyRuntime> for TlsSocket<'_, 
         let (reader, writer) = self.socket.split();
         (
             TlsReader { reader, core: &self.core },
-            TlsWriter { writer, core: &self.core, tx: self.tx, out: self.out, out_len: &mut self.out_len },
+            TlsWriter {
+                writer,
+                core: &self.core,
+                tx: self.tx,
+                out: self.out,
+                out_len: &mut self.out_len,
+            },
         )
     }
 
-    async fn abort<T: picoserve::Timer<picoserve::EmbassyRuntime>>(
-        mut self,
-        timeouts: &picoserve::Timeouts,
-        timer: &T,
-    ) -> Result<(), picoserve::Error<Error>> {
+    async fn abort<T: picoserve::Timer<picoserve::EmbassyRuntime>>(mut self, timeouts: &picoserve::Timeouts, timer: &T) -> Result<(), picoserve::Error<Error>> {
         TcpSocket::abort(&mut self.socket);
         timer
             .run_with_timeout(timeouts.write, self.socket.flush())
@@ -503,11 +504,7 @@ impl<'d, 'b> picoserve::io::Socket<picoserve::EmbassyRuntime> for TlsSocket<'_, 
             .map_err(|e| picoserve::Error::Write(Error::Tcp(e)))
     }
 
-    async fn shutdown<T: picoserve::Timer<picoserve::EmbassyRuntime>>(
-        mut self,
-        timeouts: &picoserve::Timeouts,
-        timer: &T,
-    ) -> Result<(), picoserve::Error<Error>> {
+    async fn shutdown<T: picoserve::Timer<picoserve::EmbassyRuntime>>(mut self, timeouts: &picoserve::Timeouts, timer: &T) -> Result<(), picoserve::Error<Error>> {
         // What's still gathered, a close_notify, then close the TCP side and
         // let it drain.
         if self.out_len > 0 {
@@ -535,11 +532,7 @@ impl<'d, 'b> picoserve::io::Socket<picoserve::EmbassyRuntime> for TlsSocket<'_, 
             self.socket.close();
             self.socket.flush().await
         };
-        timer
-            .run_with_timeout(timeouts.write, result)
-            .await
-            .map_err(picoserve::Error::WriteTimeout)?
-            .map_err(|e| picoserve::Error::Write(Error::Tcp(e)))
+        timer.run_with_timeout(timeouts.write, result).await.map_err(picoserve::Error::WriteTimeout)?.map_err(|e| picoserve::Error::Write(Error::Tcp(e)))
     }
 }
 
@@ -606,18 +599,12 @@ impl rand_core_06::CryptoRng for Getrandom06 {}
 struct P256Keys;
 
 impl rustls::crypto::KeyProvider for P256Keys {
-    fn load_private_key(
-        &self,
-        key_der: rustls::pki_types::PrivateKeyDer<'static>,
-    ) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
+    fn load_private_key(&self, key_der: rustls::pki_types::PrivateKeyDer<'static>) -> Result<Arc<dyn rustls::sign::SigningKey>, rustls::Error> {
         let bad = || rustls::Error::General(alloc::string::String::from("not an ECDSA P-256 PKCS #8 key"));
         let rustls::pki_types::PrivateKeyDer::Pkcs8(der) = key_der else { return Err(bad()) };
         let info = pkcs8::PrivateKeyInfoRef::try_from(der.secret_pkcs8_der()).map_err(|_| bad())?;
         info.algorithm
-            .assert_oids(
-                pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1"),
-                pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7"),
-            )
+            .assert_oids(pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.2.1"), pkcs8::ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7"))
             .map_err(|_| bad())?;
         let key = sec1::EcPrivateKey::try_from(info.private_key.as_bytes()).map_err(|_| bad())?;
         let secret = p256_cortex_m4::SecretKey::from_bytes(key.private_key).map_err(|_| bad())?;

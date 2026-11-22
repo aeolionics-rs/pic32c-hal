@@ -50,6 +50,12 @@ async fn main(_spawner: Spawner) {
             }
         }
         n += 1;
-        let _ = writeln!(log, "tick {n}: {} ms since boot, SW0 {}, SW1 {}\r", Instant::now().as_millis(), if sw0.is_low() { "down" } else { "up" }, if sw1.is_low() { "down" } else { "up" });
+        let _ = writeln!(
+            log,
+            "tick {n}: {} ms since boot, SW0 {}, SW1 {}\r",
+            Instant::now().as_millis(),
+            if sw0.is_low() { "down" } else { "up" },
+            if sw1.is_low() { "down" } else { "up" }
+        );
     }
 }

@@ -193,11 +193,7 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_secs(2)).await;
     }
 
-    t.check(
-        "offset",
-        rounds == 5 && highest - lowest <= SPREAD,
-        format_args!("{lowest} to {highest} counts over {rounds} rounds (within {SPREAD})"),
-    );
+    t.check("offset", rounds == 5 && highest - lowest <= SPREAD, format_args!("{lowest} to {highest} counts over {rounds} rounds (within {SPREAD})"));
     let failures = t.failures;
     finish(&mut log, &mut led, failures).await
 }

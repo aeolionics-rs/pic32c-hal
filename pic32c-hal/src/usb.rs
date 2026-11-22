@@ -35,9 +35,9 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{Direction, EndpointAddress, EndpointAllocError, EndpointConfig, EndpointDisabledError, EndpointError, EndpointInfo, EndpointType, Event, Speed, Unsupported};
 
+use crate::gpio::Function;
 use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::{Interrupt, InterruptExt};
-use crate::gpio::Function;
 
 /// USB's clock, and its GCLK channel.
 const USB_HZ: u32 = 48_000_000;
@@ -137,7 +137,17 @@ struct Shared(UnsafeCell<Ram>);
 unsafe impl Sync for Shared {}
 
 static RAM: Shared = Shared(UnsafeCell::new(Ram {
-    descriptors: [const { [const { Bank { addr: 0, pcksize: 0, extreg: 0, status_bk: 0, _reserved: [0; 5] } }; 2] }; ENDPOINTS],
+    descriptors: [const {
+        [const {
+            Bank {
+                addr: 0,
+                pcksize: 0,
+                extreg: 0,
+                status_bk: 0,
+                _reserved: [0; 5],
+            }
+        }; 2]
+    }; ENDPOINTS],
     buffers: [[[0; BUFFER_WORDS]; 2]; ENDPOINTS],
 }));
 
@@ -350,7 +360,11 @@ impl<'d> Driver<'d> {
             // SAFETY: the binding makes each vector call the handler.
             unsafe { irq.enable() };
         }
-        Self { out_types: [None; ENDPOINTS], in_types: [None; ENDPOINTS], _lifetime: PhantomData }
+        Self {
+            out_types: [None; ENDPOINTS],
+            in_types: [None; ENDPOINTS],
+            _lifetime: PhantomData,
+        }
     }
 
     fn alloc(types: &mut [Option<(EndpointType, u16)>; ENDPOINTS], ep_type: EndpointType, ep_addr: Option<EndpointAddress>, max_packet_size: u16) -> Result<usize, EndpointAllocError> {
@@ -384,7 +398,13 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
 
     fn start(self, control_max_packet_size: u16) -> Self::Bus {
         let control = control_max_packet_size.min(64);
-        Bus { out_types: self.out_types, in_types: self.in_types, control, powered: false, _lifetime: PhantomData }
+        Bus {
+            out_types: self.out_types,
+            in_types: self.in_types,
+            control,
+            powered: false,
+            _lifetime: PhantomData,
+        }
     }
 }
 

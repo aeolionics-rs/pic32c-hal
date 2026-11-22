@@ -84,7 +84,6 @@ const DONE: u32 = 1 << 0;
 /// KEYERR, CFGERR, FIFOERR, BUSERR, WPERR, OPERR, SECERR, RSTERR, WRERR.
 const ERRORS: u32 = 0x3FFE;
 
-
 const SRAM: core::ops::Range<usize> = 0x2000_0000..0x2008_0000;
 
 /// NVMOP values (CTRLA bits 3:0).
@@ -139,9 +138,17 @@ fn steps(offset: usize, length: usize, from_sram: bool) -> impl Iterator<Item = 
         }
         let row = from_sram && (offset + start).is_multiple_of(ROW_SIZE) && length - start >= ROW_SIZE;
         let step = if row {
-            Step { operation: Operation::RowWrite, start, length: ROW_SIZE }
+            Step {
+                operation: Operation::RowWrite,
+                start,
+                length: ROW_SIZE,
+            }
         } else {
-            Step { operation: Operation::QuadWrite, start, length: WORD_SIZE }
+            Step {
+                operation: Operation::QuadWrite,
+                start,
+                length: WORD_SIZE,
+            }
         };
         start += step.length;
         Some(step)
@@ -198,7 +205,11 @@ impl<'d> Flash<'d, Blocking> {
     /// writing the code that runs, or data in use, is the caller's to avoid.
     #[must_use]
     pub fn new_blocking(fcw: Peri<'d, peripherals::FCW>) -> Self {
-        Self { capacity: crate::FLASH_SIZE, _fcw: fcw, _mode: PhantomData }
+        Self {
+            capacity: crate::FLASH_SIZE,
+            _fcw: fcw,
+            _mode: PhantomData,
+        }
     }
 }
 
@@ -213,7 +224,11 @@ impl<'d> Flash<'d, Async> {
         irq.unpend();
         // SAFETY: the handler only masks the FCW's interrupt and wakes.
         unsafe { irq.enable() };
-        Self { capacity: crate::FLASH_SIZE, _fcw: fcw, _mode: PhantomData }
+        Self {
+            capacity: crate::FLASH_SIZE,
+            _fcw: fcw,
+            _mode: PhantomData,
+        }
     }
 }
 

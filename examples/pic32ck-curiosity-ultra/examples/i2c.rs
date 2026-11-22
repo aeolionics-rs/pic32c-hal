@@ -228,9 +228,7 @@ async fn sensors_found(bus: &mut I2c<'_, Async>, found: &[u8], skip: &[u8], t: &
 fn check_reading(t: &mut Tests<'_>, name: &str, address: u8, reading: Result<Reading, &'static str>) {
     match reading {
         Ok(r) => {
-            let good = (-1000..=6000).contains(&r.centidegrees)
-                && r.centi_rh.is_none_or(|rh| (0..=10_000).contains(&rh))
-                && r.pascals.is_none_or(|pa| (30_000..=110_000).contains(&pa));
+            let good = (-1000..=6000).contains(&r.centidegrees) && r.centi_rh.is_none_or(|rh| (0..=10_000).contains(&rh)) && r.pascals.is_none_or(|pa| (30_000..=110_000).contains(&pa));
             let _ = write!(t.log, "{name} at {address:#04x}: {} C", Centi(r.centidegrees));
             if let Some(rh) = r.centi_rh {
                 let _ = write!(t.log, ", {} %RH", Centi(rh));

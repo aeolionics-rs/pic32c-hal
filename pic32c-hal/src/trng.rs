@@ -28,8 +28,8 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::{Peri, peripherals};
 
 const TRNG: usize = 0x4502_4000;

@@ -21,11 +21,11 @@ use core::fmt::Write;
 use core::time::Duration;
 
 use cortex_m_rt::{entry, exception};
-use pic32ck_curiosity_ultra::time;
-use pic32ck_curiosity_ultra::uart::Uart;
 use panic_halt as _;
 use pic32c_hal::exti::{self, Nmi, NmiSense};
 use pic32c_hal::gpio::{Level, Output, Pull};
+use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -63,7 +63,12 @@ fn main() -> ! {
     time::delay(Duration::from_millis(100));
     let taken = nmi.count() - before;
     let good = at_once.is_some() && taken == 1 && !nmi.is_armed();
-    let _ = writeln!(log, "armed for high, SW1 released: fired after {at_once:?} µs, {taken} NMI(s) in 100 ms, armed after: {}{}", nmi.is_armed(), if good { "" } else { ", WRONG" });
+    let _ = writeln!(
+        log,
+        "armed for high, SW1 released: fired after {at_once:?} µs, {taken} NMI(s) in 100 ms, armed after: {}{}",
+        nmi.is_armed(),
+        if good { "" } else { ", WRONG" }
+    );
     failures += u32::from(!good);
 
     for sense in [NmiSense::Low, NmiSense::Rise, NmiSense::Fall] {

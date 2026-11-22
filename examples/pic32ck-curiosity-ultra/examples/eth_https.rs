@@ -39,23 +39,22 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use critical_section::Mutex;
 use pic32ck_curiosity_ultra::clocks;
-#[path = "common/net.rs"]
-mod net;
 #[path = "common/mdns.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod mdns;
+#[path = "common/net.rs"]
+mod net;
 #[path = "common/sntp.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod sntp;
 #[path = "common/tls.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod tls;
-use pic32ck_curiosity_ultra::uart::Uart;
 use embassy_executor::Spawner;
 use embassy_futures::join::join5;
+use embassy_net::iface::Iface;
 use embassy_net::iface::dhcpv4::DhcpConfig;
 use embassy_net::iface::slaac::SlaacConfig;
-use embassy_net::iface::Iface;
 use embassy_net::{Runner, Stack, StackStorage, StaticPool};
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_alloc::TlsfHeap;
@@ -63,6 +62,7 @@ use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
 use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::trng::{self, Trng};
 use pic32c_hal::{bind_interrupts, uid};
+use pic32ck_curiosity_ultra::uart::Uart;
 use picoserve::response::IntoResponse;
 use picoserve::routing::{get, get_service};
 use rustls::ServerConfig;
@@ -318,11 +318,7 @@ async fn main(spawner: Spawner) {
     let provider = Arc::new(provider);
     let config = ServerConfig::builder_with_details(provider, Arc::new(Clock))
         .with_safe_default_protocol_versions()
-        .and_then(|builder| {
-            builder
-                .with_no_client_auth()
-                .with_single_cert(vec![CertificateDer::from(CERT)], PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY)))
-        });
+        .and_then(|builder| builder.with_no_client_auth().with_single_cert(vec![CertificateDer::from(CERT)], PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY))));
     let mut config = match config {
         Ok(config) => config,
         Err(e) => {
@@ -340,7 +336,18 @@ async fn main(spawner: Spawner) {
 
     let id = uid::unique_id();
     let mac = [0x02, id[1], id[2], id[3], id[4], id[5]];
-    let pins = Pins { ref_clk: p.PC00, mdc: p.PC03, mdio: p.PC04, crs_dv: p.PC10, rx_er: p.PC09, rxd0: p.PC07, rxd1: p.PC06, tx_en: p.PC11, txd0: p.PC12, txd1: p.PC13 };
+    let pins = Pins {
+        ref_clk: p.PC00,
+        mdc: p.PC03,
+        mdio: p.PC04,
+        crs_dv: p.PC10,
+        rx_er: p.PC09,
+        rxd0: p.PC07,
+        rxd1: p.PC06,
+        tx_en: p.PC11,
+        txd0: p.PC12,
+        txd1: p.PC13,
+    };
     let Ok(ethernet) = Ethernet::new(p.ETH, Irqs, pins, p.PD21, QUEUE.init(PacketQueue::new()), mac, clocks::GEN_TIMER).await else {
         let _ = writeln!(log, "eth: no PHY");
         loop {
@@ -358,7 +365,12 @@ async fn main(spawner: Spawner) {
     let _ = writeln!(log, "IPv4 {:?}; IPv6 {:?}; link-local {:?}", net::v4(iface), net::v6(iface), net::link_local(iface));
 
     let app = picoserve::Router::new()
-        .route("/", get_service(picoserve::response::File::html("<!doctype html><title>PIC32CK</title><h1>Hello over TLS from the PIC32CK</h1><p>pic32c-hal, embassy-net, rustls and picoserve.</p>\n")))
+        .route(
+            "/",
+            get_service(picoserve::response::File::html(
+                "<!doctype html><title>PIC32CK</title><h1>Hello over TLS from the PIC32CK</h1><p>pic32c-hal, embassy-net, rustls and picoserve.</p>\n",
+            )),
+        )
         .route("/status", get(move || async move { status(iface) }))
         .route("/blob", get_service(picoserve::response::File::with_content_type("application/octet-stream", &BLOB)));
 
@@ -377,7 +389,11 @@ async fn main(spawner: Spawner) {
     };
     let name = mdns::host_name(iface);
     let listener = net::listen(stack, 443);
-    let advert = mdns::Advert { service: "_https", protocol: "_tcp", port: 443 };
+    let advert = mdns::Advert {
+        service: "_https",
+        protocol: "_tcp",
+        port: 443,
+    };
     #[expect(clippy::large_futures, reason = "main's future lives in the executor's static task storage, not on a stack")]
     join5(
         https(&app, stack, &listener, config.clone(), "https0"),

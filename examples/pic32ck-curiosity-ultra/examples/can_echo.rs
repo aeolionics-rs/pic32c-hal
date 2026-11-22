@@ -19,12 +19,11 @@ use can_hal::{BusStatus, CanFdFrame, CanFrame, CanId, ConfirmedTransmit, Event, 
 use cortex_m_rt::entry;
 use panic_halt as _;
 use pic32ck_curiosity_ultra::pic32c_hal::can::Mode;
-use pic32ck_curiosity_ultra::uart::Uart;
 use pic32ck_curiosity_ultra::time;
+use pic32ck_curiosity_ultra::uart::Uart;
 #[path = "common/can0.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
 mod can0;
-
 
 pic32ck_curiosity_ultra::boot!();
 
