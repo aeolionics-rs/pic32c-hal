@@ -95,7 +95,7 @@ pub mod clocks;
 pub mod dma;
 #[cfg(all(feature = "eth", gmac))]
 pub mod eth;
-#[cfg(all(feature = "exti", eic_v1))]
+#[cfg(all(feature = "exti", any(eic_v1, eic_v0)))]
 pub mod exti;
 #[cfg_attr(fcw, path = "flash.rs")]
 #[cfg_attr(nvmctrl, path = "flash_nvmctrl.rs")]
@@ -106,7 +106,7 @@ pub mod gpio;
 #[cfg(any(sercom_v6, sercom_v1, sercom_v0))]
 pub mod i2c;
 pub mod mode;
-#[cfg(rtc_v3)]
+#[cfg(any(rtc_v3, rtc_v0))]
 pub mod rtc;
 pub mod sercom;
 #[cfg(any(sercom_v6, sercom_v1, sercom_v0))]

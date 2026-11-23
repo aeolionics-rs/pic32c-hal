@@ -506,6 +506,17 @@ pub fn enable_channel(channel: usize, generator: usize) {
     });
 }
 
+/// The generator peripheral channel `channel` runs from, if it's on.
+pub(crate) fn channel_generator(channel: usize) -> Option<usize> {
+    #[expect(clippy::cast_possible_truncation, reason = "channel IDs are under 64")]
+    let id = channel as u8;
+    let now = critical_section::with(|_| {
+        write8(GCLK_CLKCTRL, id);
+        read16(GCLK_CLKCTRL)
+    });
+    (now & CLKEN != 0).then_some(usize::from((now >> 8) & 0xF))
+}
+
 /// Turns on the APBC bus clocks in `mask` (PM.APBCMASK), which the
 /// peripherals on APBC need and which are off at reset (but for the ADC's).
 pub(crate) fn enable_apbc(mask: u32) {
@@ -534,6 +545,72 @@ fn dfll_ready() -> Result<(), Error> {
     if wait(1_000_000, || read(SYSCTRL_PCLKSR) & DFLLRDY != 0) { Ok(()) } else { Err(Error::DfllTimeout) }
 }
 
+/// Starts XOSC32K, the crystal, unless it's already running as this starts
+/// it: it runs through every reset but power-on, and an RTC may be counting
+/// it, so it isn't restarted.
+///
+/// # Errors
+///
+/// [`Error::Xosc32kTimeout`] if it doesn't report ready.
+pub(crate) fn start_xosc32k() -> Result<(), Error> {
+    const ON: u32 = XOSC32K_EN32K | XOSC32K_XTALEN | OSC_ENABLE;
+    if read(SYSCTRL_XOSC32K) & ON == ON && read(SYSCTRL_PCLKSR) & XOSC32KRDY != 0 {
+        return Ok(());
+    }
+    write(SYSCTRL_XOSC32K, XOSC32K_STARTUP | XOSC32K_EN32K | XOSC32K_XTALEN);
+    write(SYSCTRL_XOSC32K, XOSC32K_STARTUP | XOSC32K_EN32K | XOSC32K_XTALEN | OSC_ENABLE);
+    // The start-up counter alone is half a second; the poll allows for up
+    // to about 2 s at 48 MHz.
+    if wait(20_000_000, || read(SYSCTRL_PCLKSR) & XOSC32KRDY != 0) { Ok(()) } else { Err(Error::Xosc32kTimeout) }
+}
+
+/// Generator `n`'s GENCTRL and GENDIV, as they are (each read after writing
+/// its ID byte).
+#[expect(clippy::cast_possible_truncation, reason = "generators number 8")]
+fn generator_registers(n: usize) -> (u32, u32) {
+    critical_section::with(|_| {
+        write8(GCLK_GENCTRL, n as u8);
+        let genctrl = read(GCLK_GENCTRL);
+        write8(GCLK_GENDIV, n as u8);
+        (genctrl, read(GCLK_GENDIV))
+    })
+}
+
+/// Whether generator `n` runs as `generator` would set it (its source, its
+/// division, on).
+pub(crate) fn generator_is(n: usize, generator: Generator) -> bool {
+    let Some((divide, divsel)) = division(n, generator.divide) else { return false };
+    let (genctrl, gendiv) = generator_registers(n);
+    let mask = (0x1F << 8) | GENEN | DIVSEL;
+    genctrl & mask == (generator.source.code() << 8) | GENEN | divsel && (gendiv >> 8) & 0xFFFF == divide
+}
+
+/// Sets generator `n` as `generator` says, unless `keep` (it already runs
+/// so, and something counting it mustn't glitch), and records its rate for
+/// [`generator_hz`]: for drivers that own a generator of their own (the
+/// RTC's). `source_hz` is its source's rate.
+///
+/// # Errors
+///
+/// [`Error::Divider`] or [`Error::GclkTimeout`].
+pub(crate) fn use_generator(n: usize, generator: Generator, source_hz: u32, keep: bool) -> Result<u32, Error> {
+    if division(n, generator.divide).is_none() {
+        return Err(Error::Divider(n));
+    }
+    if !keep {
+        set_generator(n, generator)?;
+    }
+    let hz = source_hz / u32::from(generator.divide);
+    critical_section::with(|cs| {
+        let cell = FREQUENCIES.borrow(cs);
+        if let Some(mut f) = cell.get() {
+            f.generators[n] = Some(hz);
+            cell.set(Some(f));
+        }
+    });
+    Ok(hz)
+}
+
 /// Brings `config` up.
 ///
 /// # Errors
@@ -555,13 +632,7 @@ pub(crate) unsafe fn init(config: &Config) -> Result<Frequencies, Error> {
     write8(PM_CPUSEL, 0);
     write(SYSCTRL_OSC8M, (read(SYSCTRL_OSC8M) & !OSC8M_PRESC_MASK) | (config.osc8m.presc() << OSC8M_PRESC_SHIFT));
     if config.xosc32k {
-        write(SYSCTRL_XOSC32K, XOSC32K_STARTUP | XOSC32K_EN32K | XOSC32K_XTALEN);
-        write(SYSCTRL_XOSC32K, XOSC32K_STARTUP | XOSC32K_EN32K | XOSC32K_XTALEN | OSC_ENABLE);
-        // The start-up counter alone is half a second; the poll allows for
-        // up to about 2 s at 48 MHz.
-        if !wait(20_000_000, || read(SYSCTRL_PCLKSR) & XOSC32KRDY != 0) {
-            return Err(Error::Xosc32kTimeout);
-        }
+        start_xosc32k()?;
     }
     if config.osc32k {
         let value = (osc32k_calibration() << OSC32K_CALIB_SHIFT) | OSC32K_STARTUP | OSC32K_EN32K;

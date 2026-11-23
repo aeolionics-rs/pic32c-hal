@@ -34,7 +34,10 @@
 //!   `nvmctrl_v0` (its flash controller: 256-byte rows, a 64-byte page
 //!   buffer written by command) and `wdt_v0` (the others' WDT registers,
 //!   its synchronisation in STATUS, a generic clock, the reset causes in the
-//!   PM). Its
+//!   PM), `rtc_v0` (the others' RTC registers at other offsets, a read of
+//!   CLOCK asked for first, a generic clock) and `eic_v0` (the others' EIC
+//!   less ASYNCH and PINSTATE, at other offsets, its edges on a generic
+//!   clock). Its
 //!   clocks (SYSCTRL, PM, and a GCLK programmed through ID fields), TC and
 //!   the rest are its own; it has no DMA controller.
 //!
@@ -65,10 +68,12 @@ const ALL: &[&str] = &[
     "adc_msh",
     "adc_06272",
     "rtc_v3",
+    "rtc_v0",
     "wdt_v2",
     "wdt_v1",
     "wdt_v0",
     "eic_v1",
+    "eic_v0",
     "cmcc",
     "fcw",
     "fcw_v1",
@@ -115,7 +120,7 @@ const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 
-const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0", "nvmctrl_v0", "wdt_v0"];
+const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0", "nvmctrl_v0", "wdt_v0", "rtc_v0", "eic_v0"];
 
 fn main() {
     for cfg in ALL {

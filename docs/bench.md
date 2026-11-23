@@ -48,6 +48,10 @@ its example is being tested.
   Click (W5500) for `w5500`. The ETH WIZ
   Click's SPI pins are PC15-PC17, so unplug the UART link from that board
   while it's in; its RST (PD21) also resets the on-board Ethernet PHY.
+- **GV:** PA10 jumpered to PA11 and PA18 to PA19, for `exti`; PA09 to
+  PA08, for `nmi`; an SHT40 and BMP280 module on PA22 (SDA) and PA23
+  (SCL), with VTG and GND, for `i2c`. The board's silkscreen has no pin
+  names: count along the edge from the user guide's pinout.
 - **PL10:** PA08 jumpered to PA09 and PA10 to PA11, for `exti`; PA00 to
   PA01, for `nmi` (off for `i2c`, which has its device on those pins);
   PA04-PA07 (TX, RX, RTS, CTS) to the SG01's EXT2 running `uart_peer`, for

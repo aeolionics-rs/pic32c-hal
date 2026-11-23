@@ -23,6 +23,16 @@
 //!
 //! The calendar's year field holds 0 to 63, years since 2000: [`DateTime`]s
 //! run from 2000-01-01 to 2063-12-31, 24-hour.
+//!
+//! The GV00's RTC (`rtc_v0`, the SAM D20's, DS60001881 chapter 19) has the
+//! same CLOCK and ALARM layout at other offsets, 8-bit interrupt registers,
+//! its synchronisation in STATUS, and a CLOCK read asked for first
+//! (READREQ). It counts a generic clock: [`Rtc::new`] sets the generator
+//! [`Config::generator`] names (4 by default) to the crystal or OSCULP32K
+//! divided by 32, 1.024 kHz, and feeds the RTC from it. Only a power-on
+//! reset resets the RTC, its generator and the crystal, so the time is kept
+//! through other resets, as on the PIC32CK. Bind [`InterruptHandler`] to
+//! `RTC`.
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -40,28 +50,68 @@ const RTC: usize = 0x4401_8000;
 const RTC: usize = 0x4500_6000;
 #[cfg(pic32cm_pl)]
 const RTC: usize = 0x4000_2400;
+#[cfg(pic32cm_gv)]
+const RTC: usize = 0x4000_1400;
 const CTRLA: usize = RTC;
+#[cfg(not(rtc_v0))]
 const INTENCLR: usize = RTC + 0x08;
+#[cfg(not(rtc_v0))]
 const INTENSET: usize = RTC + 0x0A;
+#[cfg(not(rtc_v0))]
 const INTFLAG: usize = RTC + 0x0C;
+#[cfg(not(rtc_v0))]
 const SYNCBUSY: usize = RTC + 0x10;
+#[cfg(not(rtc_v0))]
 const CLOCK: usize = RTC + 0x18;
+#[cfg(not(rtc_v0))]
 const ALARM0: usize = RTC + 0x20;
+#[cfg(not(rtc_v0))]
 const MASK0: usize = RTC + 0x24;
+#[cfg(rtc_v0)]
+const READREQ: usize = RTC + 0x02;
+#[cfg(rtc_v0)]
+const INTENCLR: usize = RTC + 0x06;
+#[cfg(rtc_v0)]
+const INTENSET: usize = RTC + 0x07;
+#[cfg(rtc_v0)]
+const INTFLAG: usize = RTC + 0x08;
+#[cfg(rtc_v0)]
+const STATUS: usize = RTC + 0x0A;
+#[cfg(rtc_v0)]
+const CLOCK: usize = RTC + 0x10;
+#[cfg(rtc_v0)]
+const ALARM0: usize = RTC + 0x18;
+#[cfg(rtc_v0)]
+const MASK0: usize = RTC + 0x1C;
 
 const SWRST: u16 = 1 << 0;
 const ENABLE: u16 = 1 << 1;
 /// MODE 2: clock/calendar.
 const MODE_CLOCK: u16 = 0x2 << 2;
 const MODE_MASK: u16 = 0x3 << 2;
-/// PRESCALER 11: `CLK_RTC_OSC` / 1024.
+/// PRESCALER 11: `CLK_RTC_OSC` / 1024 (10 on `rtc_v0`).
+#[cfg(not(rtc_v0))]
 const PRESCALER_1024: u16 = 11 << 8;
+#[cfg(rtc_v0)]
+const PRESCALER_1024: u16 = 10 << 8;
 const PRESCALER_MASK: u16 = 0xF << 8;
+/// CLOCKSYNC (`rtc_v0` has none: it asks for each read, READREQ).
+#[cfg(not(rtc_v0))]
 const CLOCKSYNC: u16 = 1 << 15;
+#[cfg(not(rtc_v0))]
 const ALARM0_FLAG: u16 = 1 << 8;
+#[cfg(rtc_v0)]
+const ALARM0_FLAG: u16 = 1 << 0;
 /// MASK.SEL 6: the alarm matches year to second.
 const MATCH_ALL: u8 = 6;
+#[cfg(not(rtc_v0))]
 const SYNC_ALL: u32 = 0xFFFF_FFFF;
+/// READREQ.RREQ, with ADDR at CLOCK's offset.
+#[cfg(rtc_v0)]
+const RREQ_CLOCK: u16 = (1 << 15) | 0x10;
+/// The RTC's generic clock channel (`GCLK_RTC`).
+#[cfg(rtc_v0)]
+const GCLK_RTC: usize = 0x02;
 
 #[cfg(pic32ck)]
 const OSC32KCTRL: usize = 0x4400_E000;
@@ -69,6 +119,8 @@ const OSC32KCTRL: usize = 0x4400_E000;
 const OSC32KCTRL: usize = 0x4500_8000;
 #[cfg(pic32cm_pl)]
 const OSC32KCTRL: usize = 0x4000_1400;
+// The GV00 has no OSC32KCTRL: its crystal is SYSCTRL's (`clocks`), so the
+// constants from here to the RTC's MCLK mask aren't its.
 #[cfg(any(pic32ck, pic32cm_sg))]
 const OSC_STATUS: usize = OSC32KCTRL + 0x0C;
 /// CLKSELCTRL on the PIC32CK and the SG00, RTCCTRL on the PL10.
@@ -81,18 +133,25 @@ const CLKSELCTRL: usize = OSC32KCTRL + 0x18;
 /// XOSC32K, or XOSC32KCTRL on the PL10: the same place and the same
 /// ENABLE, XTALEN and ONDEMAND bits; the PL10's has a 2-bit start-up time
 /// (CSUT) and no gain.
+#[cfg(not(rtc_v0))]
 const XOSC32K: usize = OSC32KCTRL + 0x1C;
+#[cfg(not(rtc_v0))]
 const XOSC32KRDY: u32 = 1 << 0;
+#[cfg(not(rtc_v0))]
 const XOSC_ENABLE: u32 = 1 << 1;
+#[cfg(not(rtc_v0))]
 const XOSC_XTALEN: u32 = 1 << 2;
 /// Set at reset: the crystal would run only while something asks for it,
 /// and STATUS.XOSC32KRDY wouldn't come before then.
+#[cfg(not(rtc_v0))]
 const XOSC_ONDEMAND: u32 = 1 << 7;
+#[cfg(not(rtc_v0))]
 const XOSC_STARTUP_SHIFT: u32 = 8;
 #[cfg(any(pic32ck, pic32cm_sg))]
 const XOSC_STARTUP_MAX: u8 = 10;
 #[cfg(pic32cm_pl)]
 const XOSC_STARTUP_MAX: u8 = 3;
+#[cfg(not(rtc_v0))]
 const XOSC_STARTUP_MASK: u32 = 0xF << XOSC_STARTUP_SHIFT;
 #[cfg(any(pic32ck, pic32cm_sg))]
 const XOSC_CGM_SHIFT: u32 = 18;
@@ -130,12 +189,12 @@ const MCLK_RTC: u32 = 1 << 12;
 const MCLK_RTC: u32 = 1 << 9;
 
 /// The alarm's interrupt line.
-#[cfg(any(pic32ck, pic32cm_pl))]
+#[cfg(any(pic32ck, pic32cm_pl, pic32cm_gv))]
 type Line = interrupt::typelevel::RTC;
 #[cfg(pic32cm_sg)]
 type Line = interrupt::typelevel::RTC_CMP0;
 
-/// Polls of XOSC32KRDY: a few seconds at the chip's top speed, longer than
+/// Polls of XOSC32KRDY (none on the GV00: `clocks` starts its crystal): a few seconds at the chip's top speed, longer than
 /// any crystal's start-up (the PL10's longest CSUT is 2 s; its 24 MHz
 /// M0+ polls far slower than the others).
 #[cfg(any(pic32ck, pic32cm_sg))]
@@ -171,16 +230,24 @@ pub struct Config {
     /// gives the crystal's figures at 15, the default; it resets to 8. The
     /// PL10 has none: ignored there.
     pub crystal_gain: u8,
+    /// The GV00's: the generator the RTC takes for its 1.024 kHz clock,
+    /// which no other driver or clock configuration may use (4 by default;
+    /// the clocks' configurations leave 4 to 7 free). The crystal's start-up
+    /// there is the clocks' (0.5 s), and it has no gain setting.
+    #[cfg(rtc_v0)]
+    pub generator: usize,
 }
 
 impl Default for Config {
     /// The crystal, 250 ms to start (0.5 s on the PL10), at the highest
-    /// gain.
+    /// gain; on the GV00, from generator 4.
     fn default() -> Self {
         Self {
             source: Source::Crystal,
             crystal_startup: if cfg!(pic32cm_pl) { 1 } else { 5 },
             crystal_gain: 15,
+            #[cfg(rtc_v0)]
+            generator: 4,
         }
     }
 }
@@ -359,9 +426,9 @@ pub struct InterruptHandler {
 
 impl Handler<Line> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let fired = read16(INTFLAG) & read16(INTENSET);
+        let fired = read_int(INTFLAG) & read_int(INTENSET);
         if fired & ALARM0_FLAG != 0 {
-            write16(INTENCLR, ALARM0_FLAG);
+            write_int(INTENCLR, ALARM0_FLAG);
             WAKER.wake();
         }
     }
@@ -382,6 +449,7 @@ impl<'d> Rtc<'d> {
     /// # Errors
     ///
     /// [`ConfigError::NoCrystal`] if the crystal doesn't start.
+    #[cfg(not(rtc_v0))]
     #[allow(clippy::needless_pass_by_value, reason = "taking the RTC is what makes it this one's")]
     pub fn new(rtc: Peri<'d, peripherals::RTC>, _irqs: impl Binding<Line, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
         let _ = rtc;
@@ -416,6 +484,60 @@ impl<'d> Rtc<'d> {
         Ok(Self { was_running: running, _rtc: PhantomData })
     }
 
+    /// The RTC, from `config`'s source through its generator: kept as it
+    /// is, time and all, if it is already running that way (after a reset
+    /// that wasn't power-on); otherwise set up afresh, the crystal started
+    /// and the time [`DateTime::MIN`].
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError::NoCrystal`] if the crystal doesn't start.
+    ///
+    /// # Panics
+    ///
+    /// If [`Config::generator`] isn't a generator (0 to 7), or is the CPU's
+    /// (0).
+    #[cfg(rtc_v0)]
+    #[allow(clippy::needless_pass_by_value, reason = "taking the RTC is what makes it this one's")]
+    pub fn new(rtc: Peri<'d, peripherals::RTC>, _irqs: impl Binding<Line, InterruptHandler> + 'd, config: Config) -> Result<Self, ConfigError> {
+        use crate::clocks::{self, Generator, OSC32K_HZ};
+        let _ = rtc;
+        assert!((1..clocks::GENERATORS).contains(&config.generator), "rtc: generator {} isn't one it can take", config.generator);
+        let source = match config.source {
+            Source::Crystal => clocks::Source::Xosc32k,
+            Source::UltraLowPower => clocks::Source::OscUlp32k,
+        };
+        // 32.768 kHz / 32: 1.024 kHz, which the prescaler divides to 1 Hz.
+        let generator = Generator::divided(source, 32);
+        let ctrl = MODE_CLOCK | PRESCALER_1024;
+        let running = read16(CTRLA) & (ENABLE | MODE_MASK | PRESCALER_MASK) == ctrl | ENABLE && clocks::generator_is(config.generator, generator) && clocks::channel_generator(GCLK_RTC) == Some(config.generator);
+        if config.source == Source::Crystal {
+            // Left alone if it's already running.
+            clocks::start_xosc32k().map_err(|_| ConfigError::NoCrystal)?;
+        }
+        if clocks::use_generator(config.generator, generator, OSC32K_HZ, running).is_err() {
+            return Err(ConfigError::NoCrystal);
+        }
+        clocks::enable_channel(GCLK_RTC, config.generator);
+        if !running {
+            write16(CTRLA, read16(CTRLA) & !ENABLE);
+            sync();
+            write16(CTRLA, SWRST);
+            while read16(CTRLA) & SWRST != 0 {}
+            sync();
+            write16(CTRLA, ctrl);
+            sync();
+            write32(CLOCK, DateTime::MIN.to_register());
+            sync();
+            write16(CTRLA, ctrl | ENABLE);
+            sync();
+        }
+        Line::unpend();
+        // SAFETY: the binding makes the vector call the handler.
+        unsafe { Line::enable() };
+        Ok(Self { was_running: running, _rtc: PhantomData })
+    }
+
     /// Whether the RTC was already running, its time kept, rather than set
     /// up afresh.
     #[must_use]
@@ -426,13 +548,12 @@ impl<'d> Rtc<'d> {
     /// The date and time now.
     #[must_use]
     pub fn now(&self) -> DateTime {
-        // With CLOCKSYNC on, CLOCK reads a synchronized value; read it twice
-        // so a carry in mid-read can't give a torn one.
+        // With CLOCKSYNC on (or a read request each time, on `rtc_v0`),
+        // CLOCK reads a synchronized value; read it twice so a carry in
+        // mid-read can't give a torn one.
         loop {
-            sync();
-            let a = read32(CLOCK);
-            sync();
-            let b = read32(CLOCK);
+            let a = read_clock();
+            let b = read_clock();
             if a == b {
                 return DateTime::from_register(a).unwrap_or(DateTime::MIN);
             }
@@ -455,19 +576,19 @@ impl<'d> Rtc<'d> {
         // late at 1 Hz, so the match is the second before `at` (no earlier
         // than now, since `at` is ahead).
         let before = DateTime::from_unix(at.to_unix() - 1).unwrap_or(at);
-        write16(INTENCLR, ALARM0_FLAG);
+        write_int(INTENCLR, ALARM0_FLAG);
         sync();
         write32(ALARM0, before.to_register());
         write8(MASK0, MATCH_ALL);
         sync();
-        write16(INTFLAG, ALARM0_FLAG);
+        write_int(INTFLAG, ALARM0_FLAG);
         // The flag rises a little before a read of CLOCK shows `at` (the
         // read is synchronised), so after it the wait yields until it does.
         let mut matched = false;
         poll_fn(|cx| {
             WAKER.register(cx.waker());
-            if read16(INTFLAG) & ALARM0_FLAG != 0 {
-                write16(INTFLAG, ALARM0_FLAG);
+            if read_int(INTFLAG) & ALARM0_FLAG != 0 {
+                write_int(INTFLAG, ALARM0_FLAG);
                 matched = true;
             }
             if self.now() >= at {
@@ -476,7 +597,7 @@ impl<'d> Rtc<'d> {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             } else {
-                write16(INTENSET, ALARM0_FLAG);
+                write_int(INTENSET, ALARM0_FLAG);
                 Poll::Pending
             }
         })
@@ -486,6 +607,7 @@ impl<'d> Rtc<'d> {
 
 /// Starts the crystal if it isn't running, and waits for it. It runs
 /// always, not on demand.
+#[cfg(not(rtc_v0))]
 fn start_crystal(startup: u8, gain: u8) -> Result<(), ConfigError> {
     let xosc = read32(XOSC32K);
     if xosc & (XOSC_ENABLE | XOSC_XTALEN | XOSC_ONDEMAND) == XOSC_ENABLE | XOSC_XTALEN && read32(OSC_STATUS) & XOSC32KRDY != 0 {
@@ -513,7 +635,41 @@ fn start_crystal(startup: u8, gain: u8) -> Result<(), ConfigError> {
 }
 
 fn sync() {
+    #[cfg(not(rtc_v0))]
     while read32(SYNCBUSY) & SYNC_ALL != 0 {}
+    // SAFETY: STATUS, a byte register; SYNCBUSY is bit 7.
+    #[cfg(rtc_v0)]
+    while unsafe { read_volatile(STATUS as *const u8) } & 0x80 != 0 {}
+}
+
+/// CLOCK, synchronised: as it reads with CLOCKSYNC on, or after a read
+/// request on `rtc_v0`.
+fn read_clock() -> u32 {
+    sync();
+    #[cfg(rtc_v0)]
+    {
+        write16(READREQ, RREQ_CLOCK);
+        sync();
+    }
+    read32(CLOCK)
+}
+
+/// An interrupt register (INTENCLR, INTENSET, INTFLAG): 16 bits, or 8 on
+/// `rtc_v0`.
+fn read_int(address: usize) -> u16 {
+    #[cfg(not(rtc_v0))]
+    return read16(address);
+    // SAFETY: an RTC byte register.
+    #[cfg(rtc_v0)]
+    return u16::from(unsafe { read_volatile(address as *const u8) });
+}
+
+#[cfg_attr(rtc_v0, expect(clippy::cast_possible_truncation, reason = "the flags are in the low byte"))]
+fn write_int(address: usize, value: u16) {
+    #[cfg(not(rtc_v0))]
+    write16(address, value);
+    #[cfg(rtc_v0)]
+    write8(address, value as u8);
 }
 
 fn read16(address: usize) -> u16 {

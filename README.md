@@ -350,8 +350,14 @@ The plan is to publish to crates.io once these have stabilized.
   sheet says resets to 1 but reads 0); `wdt` (the others' driver: its
   synchronisation in STATUS, its clock generator 2 at 1.024 kHz,
   OSCULP32K / 32, which the clocks' configurations set with DIVSEL; the
-  reset causes in the PM); `uid` (its 128-bit serial number); and the time
-  driver on TC0 and TC1 paired as 32 bits, or with
+  reset causes in the PM); `rtc` (the others' driver at the SAM D20's
+  offsets, a CLOCK read asked for first, its clock a generator it sets to
+  the crystal or OSCULP32K / 32; only a power-on reset resets it, so the
+  time is kept through other resets); `exti` (the others' driver with one
+  vector, no ASYNCH or PINSTATE, its edges sampled by `GCLK_EIC` from
+  generator 0; the button read high with the PORT's pull-up while the EIC
+  had it, which suggests the pull holds, unlike the PL10's) and the NMI on
+  PA08; `uid` (its 128-bit serial number); and the time driver on TC0 and TC1 paired as 32 bits, or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (the SAM D20's
   TC: a read of the count is asked for first). The other modules aren't
   ported yet (see the to-do list).
@@ -365,7 +371,9 @@ The plan is to publish to crates.io once these have stabilized.
   PB02/PB03/PB00, in loopback) and `i2c` (on its I2C pins, SERCOM3
   PA22/PA23, with a sensor wired; the PL10's `bme280` driver test doesn't
   fit in 32 KB, so the Bosch part is read raw), `flash` and `flash_async`
-  (scratch rows at offsets 0x7C00 and 0x6000) and `watchdog`. Build with `cargo build --release -p
+  (scratch rows at offsets 0x7C00 and 0x6000), `watchdog`, `rtc` (from
+  the crystal), `exti` (PA10 jumpered to PA11 and PA18 to PA19, and the
+  button) and `nmi` (PA09 jumpered to PA08, the NMI pin). Build with `cargo build --release -p
   pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-GV_DFP pack (the PL10 board crate's
   examples have the same names and target, so each build replaces the
@@ -385,7 +393,16 @@ The plan is to publish to crates.io once these have stabilized.
   dropped part way); and `watchdog`: start, stop and refusals, fed at
   100 ms (no warning) and 750 ms (a warning each period), then starved (a
   warning at 501 ms, a reset at about 1 s, RCAUSE watchdog), then a system
-  reset request (RCAUSE system).
+  reset request (RCAUSE system); `rtc`: from the crystal, −3,633 ppm
+  against OSC8M over 10 s (OSC8M's error), the calendar through 29
+  February and a new year, an alarm in 2.88 s, the time kept through a
+  system reset, then OSCULP32K set up afresh (0.9 % slow); `exti`: on each
+  jumper, rising, falling, either edge, high and low each woken about
+  203 µs after the output moved (at 8 MHz), a level already met at once,
+  100 alternate edges, none missed, and two lines on the one vector, both
+  woken together and one left waiting; and `nmi`: levels and edges each
+  firing once about 34 µs after PA09 moved, and not for the wrong edge or
+  disarmed.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -495,8 +512,7 @@ PIC32CM SG00:
 
 PIC32CM GV00:
 
-- Not yet ported: `rtc`, `exti` and the NMI, `adc`; and the DAC, which no
-  other chip here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
+- Not yet ported: `adc`, and the DAC, which no other chip here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
   drivers: an async `spi` would need to run on its interrupts.
 - The time driver on TC3 to TC7.
 - SERCOM v0's TX on pad 2 (TXPO 1), which the UART's constructors don't
