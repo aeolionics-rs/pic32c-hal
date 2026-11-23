@@ -185,7 +185,8 @@ The plan is to publish to crates.io once these have stabilized.
   generated it).
 - PIC32CM PL10 (Cortex-M0+, feature `pic32cm6408pl10048`, target
   `thumbv6m-none-eabi`): `clocks` (OSCHF 1-24 MHz, four generators),
-  `gpio` (no open drain; a 1-bit slew limit), `uart` blocking and
+  `gpio` (a 1-bit slew limit; no open drain in PORT, so `OutputOpenDrain`
+  switches the pin's direction, with an optional pull-up), `uart` blocking and
   `BufferedUart` (SERCOM v1: no FIFO, 16-bit DATA, one vector per SERCOM,
   bus clocks turned on by the driver), `uart`'s DMA and the ring receiver,
   `dma` on its DMAC (the SG00's IP and driver, with two channels and one
@@ -217,7 +218,8 @@ The plan is to publish to crates.io once these have stabilized.
   to PA09 and PA10 to PA11), `adc`, `adc_pin` (PA03's readings, as
   `name=value` lines, for a voltage source wired to it) and `uart_flow`
   (RTS/CTS on SERCOM0, PA04-PA07, against a Curiosity Ultra's
-  `uart_peer`) and `nmi` (PA00 jumpered to PA01, the NMI pin), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
+  `uart_peer`), `nmi` (PA00 jumpered to PA01, the NMI pin) and
+  `open_drain` (on the PA10-PA11 jumper), the SG00 board's sized for 8 KB of SRAM. Build with `cargo build --release -p
   pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-PL_DFP pack at 100 kHz (probe-rs can't
   reset this chip). All pass on the board: 1002 ms a tick, 8000 bytes
@@ -258,7 +260,12 @@ The plan is to publish to crates.io once these have stabilized.
   losing bytes; and `nmi` on PA01: high and low levels firing once at
   once (the handler disarms the level) and not for the other level,
   rising, falling and either edge firing once about 25 µs after PA00
-  moved and not before, the wrong edge and a disarmed pin not firing.
+  moved and not before, the wrong edge and a disarmed pin not firing;
+  `open_drain` on PA10-PA11: low read low at both ends and, let go,
+  high through PA11's pull-up; the line, taken low then left floating,
+  staying low while PA10 let go (it never drives high); both ends open
+  drain high only while both let go; `toggle`, and the reset state on
+  drop; 585 kHz square waves through the PORT's pull-up at 24 MHz.
 - `pac/pic32cm-sg00-pac`: the PIC32CM5112SG00100's PAC, from the
   PIC32CM-SG00_DFP 1.2.83 SVD (svd2rust 0.37.1 and form, with the CK's
   `fix_svd.py`).
@@ -339,7 +346,7 @@ The plan is to publish to crates.io once these have stabilized.
   and OSC32K, the DFLL48M open loop from its factory calibration or closed
   loop locked to a generator, eight generators, the flash wait states for
   the CPU's rate; `gpio` (`port_v0`: `port_v1` with drive strength in place
-  of slew control); `uart` blocking and `BufferedUart` (`sercom_v0`: the
+  of slew control; open drain by direction, as on the PL10); `uart` blocking and `BufferedUart` (`sercom_v0`: the
   registers at other offsets, synchronisation in STATUS.SYNCBUSY, no ERROR
   interrupt, no FIFO, no RTS/CTS); `spi` blocking, and async with the
   SERCOM's interrupt moving each byte in place of DMA (SCK rated to 8 MHz)
@@ -382,7 +389,8 @@ The plan is to publish to crates.io once these have stabilized.
   fit in 32 KB, so the Bosch part is read raw), `flash` and `flash_async`
   (scratch rows at offsets 0x7C00 and 0x6000), `watchdog`, `rtc` (from
   the crystal), `exti` (PA10 jumpered to PA11 and PA18 to PA19, and the
-  button), `nmi` (PA09 jumpered to PA08, the NMI pin), `adc` (the inputs
+  button), `nmi` (PA09 jumpered to PA08, the NMI pin), `open_drain` (on
+  the PA10-PA11 jumper), `adc` (the inputs
   inside the chip) and `dac` (read back by the ADC, inside the chip and
   on PA02). Build with `cargo build --release -p
   pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --example blink`;
@@ -425,7 +433,10 @@ The plan is to publish to crates.io once these have stabilized.
   the to-do list); and `dac` against the ADC at AVDD: 4.000 counts a code
   inside the chip and 4.001 on PA02 (4 ideal), offset −1, worst deviation
   2 counts over codes 32-992, a full-scale step within 24 counts at once
-  and settled 10 µs later; against 1.0 V on both, 4.03 a code.
+  and settled 10 µs later; against 1.0 V on both, 4.03 a code; and
+  `open_drain` on PA10-PA11: as on the PL10, with PA11's pull-down
+  holding the line low while PA10 let go; 181 kHz square waves through
+  the pull-up at 8 MHz.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -512,7 +523,6 @@ PIC32CM PL10:
 - The ADC's temperature sensor reads about 9 °C high with the factory
   calibration and the data sheet's equation; the preliminary data sheet
   doesn't settle it. The external reference needs wiring (not yet run).
-- A software open-drain output.
 - `rtc` from the crystal, on a board with the crystal connected (not yet
   run).
 - Stack overflow runs silently into `.bss` on the 8 KB part: flip-link or

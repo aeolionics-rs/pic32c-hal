@@ -3,7 +3,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! General-purpose I/O through PORT (DS60001795 chapter 34): [`Input`],
-//! [`Output`], [`OutputOpenDrain`] and [`Flex`], each taking a pin singleton
+//! [`Output`], [`OutputOpenDrain`] (by direction where PORT has no open
+//! drain) and [`Flex`], each taking a pin singleton
 //! (`p.PD20`) or an [`AnyPin`]. Dropping one returns its pin to the reset
 //! state: input buffer off, no pull, not driven.
 //!
@@ -23,6 +24,8 @@ use core::ptr::{read_volatile, write_volatile};
 use crate::{Peri, PeripheralType};
 
 const GROUP_STRIDE: usize = 0x80;
+#[cfg(not(port_v4))]
+const DIR: usize = 0x00;
 const DIRCLR: usize = 0x04;
 const DIRSET: usize = 0x08;
 const OUT: usize = 0x10;
@@ -508,46 +511,115 @@ impl<'d> Output<'d> {
     }
 }
 
-/// An open-drain output: high lets go, so the pin reads what the bus holds.
-/// (`port_v4` only: the PL10's PORT has no open drain.)
-#[cfg(port_v4)]
+/// An open-drain output: low drives low, high lets go, so the pin reads
+/// what the line holds (another driver may hold it low).
+///
+/// On `port_v4` (the PIC32CK, the SG00) PORT does it (PINCFG.ODRAIN). The
+/// PL10's and the GV00's PORT have no open drain, so there it's done by
+/// direction: low is OUT 0 then DIR set (the pin drives the 0), high is DIR
+/// clear then OUT 1 (the pin an input again, its pull, if any, up). In that
+/// order the pin never drives high, even for an instant, and each step is
+/// one store to a set or clear register (no read-modify-write).
 pub struct OutputOpenDrain<'d> {
     pin: Flex<'d>,
 }
 
-#[cfg(port_v4)]
 impl<'d> OutputOpenDrain<'d> {
-    /// `pin` open drain, at `level`.
+    /// `pin` open drain, at `level`, with no pull: the line needs its own.
     #[must_use]
     pub fn new(pin: Peri<'d, impl Pin>, level: Level) -> Self {
-        let mut pin = Flex::new(pin);
+        #[cfg(port_v4)]
+        {
+            let mut pin = Flex::new(pin);
+            pin.set_level(level);
+            pin.set_as_output_open_drain();
+            Self { pin }
+        }
+        #[cfg(not(port_v4))]
+        {
+            let pin = Flex::new(pin);
+            pin.pin.set(DIRCLR);
+            write8(pin.pin.pincfg(), INEN);
+            let mut pin = Self { pin };
+            pin.set_level(level);
+            pin
+        }
+    }
+
+    /// `pin` open drain, at `level`, with the PORT's pull-up while let go
+    /// (weak: about 40 kΩ; I²C wants a stronger one on the line). Not on
+    /// `port_v4`, whose open drain is PORT's own.
+    #[cfg(not(port_v4))]
+    #[must_use]
+    pub fn new_with_pull_up(pin: Peri<'d, impl Pin>, level: Level) -> Self {
+        let pin = Flex::new(pin);
+        pin.pin.set(DIRCLR);
+        // PULLEN acts only while the pin is an input, upward while OUT is 1.
+        write8(pin.pin.pincfg(), INEN | PULLEN);
+        let mut pin = Self { pin };
         pin.set_level(level);
-        pin.set_as_output_open_drain();
-        Self { pin }
+        pin
     }
 
+    /// Lets the line go.
     pub fn set_high(&mut self) {
+        #[cfg(port_v4)]
         self.pin.set_high();
+        #[cfg(not(port_v4))]
+        {
+            self.pin.pin.set(DIRCLR);
+            self.pin.pin.set(OUTSET);
+        }
     }
 
+    /// Drives the line low.
     pub fn set_low(&mut self) {
+        #[cfg(port_v4)]
         self.pin.set_low();
+        #[cfg(not(port_v4))]
+        {
+            self.pin.pin.set(OUTCLR);
+            self.pin.pin.set(DIRSET);
+        }
     }
 
     pub fn set_level(&mut self, level: Level) {
-        self.pin.set_level(level);
+        match level {
+            Level::High => self.set_high(),
+            Level::Low => self.set_low(),
+        }
     }
 
     pub fn toggle(&mut self) {
+        #[cfg(port_v4)]
         self.pin.toggle();
+        #[cfg(not(port_v4))]
+        if self.is_set_high() {
+            self.set_low();
+        } else {
+            self.set_high();
+        }
+    }
+
+    /// Whether the line is let go (set high).
+    #[must_use]
+    pub fn is_set_high(&self) -> bool {
+        #[cfg(port_v4)]
+        {
+            self.pin.is_set_high()
+        }
+        #[cfg(not(port_v4))]
+        {
+            read32(self.pin.pin.group() + DIR) & self.pin.pin.bit() == 0
+        }
     }
 
     #[must_use]
-    pub fn is_set_high(&self) -> bool {
-        self.pin.is_set_high()
+    pub fn is_set_low(&self) -> bool {
+        !self.is_set_high()
     }
 
-    /// The pin's level, which another driver may hold low.
+    /// The line's level, which another driver may hold low.
     #[must_use]
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
@@ -557,6 +629,11 @@ impl<'d> OutputOpenDrain<'d> {
     pub fn is_low(&self) -> bool {
         self.pin.is_low()
     }
+
+    #[must_use]
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
+    }
 }
 
 mod embedded_hal_1 {
@@ -564,9 +641,7 @@ mod embedded_hal_1 {
 
     use embedded_hal::digital::{ErrorType, InputPin, OutputPin, StatefulOutputPin};
 
-    #[cfg(port_v4)]
-    use super::OutputOpenDrain;
-    use super::{Flex, Input, Output};
+    use super::{Flex, Input, Output, OutputOpenDrain};
 
     macro_rules! error_type {
         ($($t:ident),*) => {
@@ -579,7 +654,6 @@ mod embedded_hal_1 {
     }
 
     error_type!(Flex, Input, Output);
-    #[cfg(port_v4)]
     error_type!(OutputOpenDrain);
 
     macro_rules! input {
@@ -599,7 +673,6 @@ mod embedded_hal_1 {
     }
 
     input!(Flex, Input);
-    #[cfg(port_v4)]
     input!(OutputOpenDrain);
 
     macro_rules! output {
@@ -636,6 +709,5 @@ mod embedded_hal_1 {
     }
 
     output!(Flex, Output);
-    #[cfg(port_v4)]
     output!(OutputOpenDrain);
 }
