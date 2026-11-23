@@ -5,8 +5,8 @@
 //! Drivers for Microchip's PIC32C microcontrollers, so far the PIC32CK SG
 //! and GC (DS60001795), the PIC32CM SG00 (DS60001921) and PL10
 //! (DS40002667) and, in part, the PIC32CM GV00 (DS60001881: clocks, GPIO,
-//! the UART, SPI, I2C, flash, the watchdog, the unique ID and the time
-//! driver), in Embassy's style. As in
+//! the UART, SPI, I2C, flash, the watchdog, the RTC, the EIC, the ADC, its
+//! DAC, the unique ID and the time driver), in Embassy's style. As in
 //! embassy-stm32, `build.rs` turns the chip feature into cfgs naming its
 //! peripherals' IP versions (`sercom_v6`, `sercom_v1`, `port_v4`, ...), and
 //! the drivers and modules follow those, not the chip:
@@ -17,6 +17,7 @@
 //! - [`adc`]: the 12-bit ADC, one read at a time, blocking or async, from
 //!   the pins, the bandgap and the temperature sensor;
 //! - [`cache`]: the L1 cache in front of flash, on by default;
+//! - [`dac`]: the GV00's 10-bit DAC;
 //! - [`eth`] (feature `eth`): the Ethernet MAC, as an embassy-net driver;
 //! - [`gpio`]: inputs and outputs, with the embedded-hal 1.0 traits;
 //! - [`exti`] (feature `exti`): waiting on pin levels and edges through the
@@ -79,7 +80,8 @@ mod chip;
 
 #[cfg_attr(adc_msh, path = "adc.rs")]
 #[cfg_attr(adc_06272, path = "adc_06272.rs")]
-#[cfg(any(adc_msh, adc_06272))]
+#[cfg_attr(adc_u2204, path = "adc_u2204.rs")]
+#[cfg(any(adc_msh, adc_06272, adc_u2204))]
 pub mod adc;
 #[cfg(cmcc)]
 pub mod cache;
@@ -89,6 +91,8 @@ pub mod can;
 #[cfg_attr(pic32cm_pl, path = "clocks_pl.rs")]
 #[cfg_attr(pic32cm_gv, path = "clocks_gv.rs")]
 pub mod clocks;
+#[cfg(dac)]
+pub mod dac;
 #[cfg_attr(dma_axi, path = "dma.rs")]
 #[cfg_attr(dma_u2223, path = "dma_u2223.rs")]
 #[cfg(dma)]

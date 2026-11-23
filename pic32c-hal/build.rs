@@ -37,7 +37,8 @@
 //!   PM), `rtc_v0` (the others' RTC registers at other offsets, a read of
 //!   CLOCK asked for first, a generic clock) and `eic_v0` (the others' EIC
 //!   less ASYNCH and PINSTATE, at other offsets, its edges on a generic
-//!   clock). Its
+//!   clock), `adc_u2204` (its ADC, the SAM D20's, with a gain stage) and
+//!   `dac` (its 10-bit DAC, which no other chip here has). Its
 //!   clocks (SYSCTRL, PM, and a GCLK programmed through ID fields), TC and
 //!   the rest are its own; it has no DMA controller.
 //!
@@ -67,6 +68,8 @@ const ALL: &[&str] = &[
     "dma_u2223",
     "adc_msh",
     "adc_06272",
+    "adc_u2204",
+    "dac",
     "rtc_v3",
     "rtc_v0",
     "wdt_v2",
@@ -120,7 +123,7 @@ const PIC32CM_PL: &[&str] = &["pic32cm_pl", "sercom_v1", "port_v1", "dma", "dma_
 
 const PIC32CM_SG: &[&str] = &["pic32cm_sg", "sercom_v6", "port_v4", "dma", "dma_u2223", "fcw", "fcw_v2", "rtc_v3", "eic_v1", "adc_msh", "wdt_v2", "mcan", "usb_fs"];
 
-const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0", "nvmctrl_v0", "wdt_v0", "rtc_v0", "eic_v0"];
+const PIC32CM_GV: &[&str] = &["pic32cm_gv", "sercom_v0", "port_v0", "nvmctrl_v0", "wdt_v0", "rtc_v0", "eic_v0", "adc_u2204", "dac"];
 
 fn main() {
     for cfg in ALL {

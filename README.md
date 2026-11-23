@@ -357,7 +357,15 @@ The plan is to publish to crates.io once these have stabilized.
   vector, no ASYNCH or PINSTATE, its edges sampled by `GCLK_EIC` from
   generator 0; the button read high with the PORT's pull-up while the EIC
   had it, which suggests the pull holds, unlike the PL10's) and the NMI on
-  PA08; `uid` (its 128-bit serial number); and the time driver on TC0 and TC1 paired as 32 bits, or with
+  PA08; `adc` (a driver of its own for its ADC, IP U2204, behind the
+  others' API: a gain stage, AVDD full scale by default (half AVDD at half
+  gain), the internal 1.0 V, AVDD / 1.48 or the VREFA/VREFB pins; AIN0-19,
+  the bandgap, VDDIO/4, the temperature sensor and the DAC's output inside
+  the chip; the factory linearity and bias calibration loaded; its clock
+  `GCLK_ADC` through a prescaler kept to 2.1 MHz); `dac` (its 10-bit DAC,
+  which no other chip here has: VOUT on PA02 and the ADC through its output
+  buffer, or the comparators alone; AVDD, 1.0 V or VREFA); `uid` (its
+  128-bit serial number); and the time driver on TC0 and TC1 paired as 32 bits, or with
   `time-driver-tc0`, `-tc1` or `-tc2` on one TC as 16 bits (the SAM D20's
   TC: a read of the count is asked for first). The other modules aren't
   ported yet (see the to-do list).
@@ -373,7 +381,9 @@ The plan is to publish to crates.io once these have stabilized.
   fit in 32 KB, so the Bosch part is read raw), `flash` and `flash_async`
   (scratch rows at offsets 0x7C00 and 0x6000), `watchdog`, `rtc` (from
   the crystal), `exti` (PA10 jumpered to PA11 and PA18 to PA19, and the
-  button) and `nmi` (PA09 jumpered to PA08, the NMI pin). Build with `cargo build --release -p
+  button), `nmi` (PA09 jumpered to PA08, the NMI pin), `adc` (the inputs
+  inside the chip) and `dac` (read back by the ADC, inside the chip and
+  on PA02). Build with `cargo build --release -p
   pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --example blink`;
   flash with pyOCD and the PIC32CM-GV_DFP pack (the PL10 board crate's
   examples have the same names and target, so each build replaces the
@@ -402,7 +412,15 @@ The plan is to publish to crates.io once these have stabilized.
   100 alternate edges, none missed, and two lines on the one vector, both
   woken together and one left waiting; and `nmi`: levels and edges each
   firing once about 34 µs after PA09 moved, and not for the wrong edge or
-  disarmed.
+  disarmed; `adc`: AVDD 3,322 mV from the bandgap (the debugger reports
+  3.32 V), VDD 3,340 mV from VDDIO/4 against 1.0 V, the three resolutions
+  agreeing, async reads matching, 14 µs a read (30 µs with the long sample)
+  at a 2 MHz `CLK_ADC`, and the temperature sensor at 36.6 °C by the data
+  sheet's typical figures beside an SHT40's 25 °C (about 11 °C high: see
+  the to-do list); and `dac` against the ADC at AVDD: 4.000 counts a code
+  inside the chip and 4.001 on PA02 (4 ideal), offset −1, worst deviation
+  2 counts over codes 32-992, a full-scale step within 24 counts at once
+  and settled 10 µs later; against 1.0 V on both, 4.03 a code.
 - `examples/pic32ck-curiosity-ultra`: board support for the PIC32CK SG01 and GC01
   Curiosity Ultra boards, with pic32c-hal's bench programs as its examples
   (in its `examples/`). The library is the board support alone (boot, `init` with the boards'
@@ -512,8 +530,13 @@ PIC32CM SG00:
 
 PIC32CM GV00:
 
-- Not yet ported: `adc`, and the DAC, which no other chip here has. No DMA controller, so no `dma` and no DMA modes in the SERCOM
-  drivers: an async `spi` would need to run on its interrupts.
+- No DMA controller, so no `dma` and no DMA modes in the SERCOM drivers:
+  an async `spi` would need to run on its interrupts.
+- The temperature sensor: the data sheet gives only typical figures
+  (0.667 V at 25 °C, 2.4 mV/°C, ±10 °C) and no factory calibration (the
+  ATDF names a `TEMP_LOG` area the data sheet doesn't describe); by those
+  figures it read about 11 °C high on the bench board.
+- The AC, PTC and event system, as on the other chips.
 - The time driver on TC3 to TC7.
 - SERCOM v0's TX on pad 2 (TXPO 1), which the UART's constructors don't
   offer yet (they take TX on pad 0, as on the other chips).
