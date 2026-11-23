@@ -93,6 +93,26 @@ name = "usb_echo"
 test = false
 bench = false
 
+[[example]]
+name = "gpio"
+test = false
+bench = false
+
+[[example]]
+name = "nmi"
+test = false
+bench = false
+
+[[example]]
+name = "open_drain"
+test = false
+bench = false
+
+[[example]]
+name = "uart_flow"
+test = false
+bench = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 # The vector table is in program flash at 0x0C000000; boot flash holds only

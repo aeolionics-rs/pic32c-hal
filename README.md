@@ -301,9 +301,12 @@ The plan is to publish to crates.io once these have stabilized.
   AVDD and the board's MCP1501 on VREFH, the potentiometer on PB06),
   `usb_echo` (CDC-ACM on the target Micro-AB; `tools/host/cdc_echo_test.py`
   drives it), `flash` and `flash_async`
-  (scratch pages at offsets 0x7_C000 and 0x4_0000), and `i2c` (an `SHT4x`
+  (scratch pages at offsets 0x7_C000 and 0x4_0000), `i2c` (an `SHT4x`
   and a BMP280 or BME280 wired to EXT1 or the mikroBUS socket; the board
-  has no I2C device of its own). Build with `cargo build
+  has no I2C device of its own), `gpio` (the board alone), `open_drain`
+  and `nmi` (PD01 jumpered to PD00, the NMI pin: EXT1 pins 11 and 12) and
+  `uart_flow` (RTS/CTS on SERCOM3, PD09 and PA00-PA02, against a Curiosity
+  Ultra's `uart_peer`). Build with `cargo build
   --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi
   --example blink`; flash with pyOCD and the PIC32CM-SG00_DFP pack, the
   board's debugger in CMSIS-DAP mode. All pass on the board: 1,002-1,003
@@ -335,7 +338,18 @@ The plan is to publish to crates.io once these have stabilized.
   0/0; and CAN1 as FD at 500 kbit/s and 2 Mbit/s: `can_ping` built with
   `CAN_FD=1` passed 10 rounds in 957 ms against the CoreMP135 (1,080 frames
   each way, FD ones of every length to 64 bytes with and without bit-rate
-  switching, eight 64-byte ones at once), error-active at 0/0.
+  switching, eight 64-byte ones at once), error-active at 0/0. Then
+  `gpio`: the pulls on the empty mikroBUS socket's AN and RST both ways,
+  both buttons released, LED1 reading back what it drives, the reset
+  state on drop; `open_drain` (the chip's own) on PD01-PD00: low and let
+  go read at both ends, both ways round, `toggle`, the reset state on
+  drop, 2.48 MHz square waves through the board's I2C pull-ups at 72 MHz
+  (those pull-ups keep it from showing that a pin let go never drives
+  high); and `uart_flow` against the SG01's `uart_peer` at 1 Mbaud: 8 KiB
+  back intact with CTS seen holding 178 times, 2 KiB back after 200 ms
+  unread with no overflow, the same through a `BufferedUart`'s 256-byte
+  rings, and the controls without flow control losing bytes. `nmi` does
+  not pass: see the to-do list.
 - `pac/pic32cm-gv00-pac`: the PIC32CM3204GV00064's PAC, from the
   PIC32CM-GV_DFP 1.3.47 SVD (svd2rust 0.37.1 and form). The SVD has no
   PTC, so neither has the PAC.
@@ -530,6 +544,12 @@ PIC32CM PL10:
 
 PIC32CM SG00:
 
+- The NMI on PD00 doesn't see the pin on the bench board: armed for a
+  low level it fires whatever PD00 does, for a high level never, and for
+  edges (asynchronous) never, though PORT reads PD00 right. The same with
+  the EIC's registers written by hand from the boot ROM (2026-11-23). The
+  data sheet (DS60001921A table 5-3) and the ATDF both give PD00. Not yet
+  explained: ask Microchip, or try the NMI filter and the EIC clock.
 - The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
   ADC input for it and the CAL OTP no factory readings (the CK's
   FCCFG69-71), so `adc` offers neither yet.

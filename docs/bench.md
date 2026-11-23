@@ -11,6 +11,7 @@ its example is being tested.
 |---|---|
 | PIC32CK SG01 Curiosity Ultra (EV33A17A) | The main CK board: TrustZone (the `PORT_SEC` view), the HSM; `uart_peer`, the far end for the UART examples. |
 | PIC32CK GC01 Curiosity Ultra (EV44P93A) | The CK without TrustZone; the far end for `can_ping`/`can_echo`. |
+| PIC32CM SG00 Curiosity Pro (EV53V42A) | The SG00 examples. |
 | PIC32CM PL10 Curiosity Nano (EV10P22A) | The PL10 examples. |
 | PIC32CM GV-Value Line Curiosity Nano+ Touch (EV80D90A) | The GV00 examples. Its target supply must be 3.3 V: the user guide gives a 5.0 V factory default, over the GV00's 3.63 V (`pymcuprog getvoltage` reads it). |
 
@@ -48,6 +49,13 @@ its example is being tested.
   Click (W5500) for `w5500`. The ETH WIZ
   Click's SPI pins are PC15-PC17, so unplug the UART link from that board
   while it's in; its RST (PD21) also resets the on-board Ethernet PHY.
+- **SG00:** the mikroBUS socket empty, for `gpio`, `exti` and `spi`; PD01
+  jumpered to PD00 (EXT1 pins 11 and 12), for `nmi` and `open_drain` (off
+  for `i2c`, whose device goes on those pins); SERCOM3 to the SG01's EXT2
+  running `uart_peer`, for `uart_flow`, crossed: SG01 pin 6 (CTS) from
+  EXT1 pin 7 (PA01, RTS), pin 16 (TX) to EXT1 pin 9 (PA00, RX), pin 17
+  (RTS) to EXT1 pin 8 (PA02, CTS), pin 18 (RX) from EXT2 pin 10 (PD09,
+  TX), and GND. The SG01's EXT2 takes one board under test at a time.
 - **GV:** PA10 jumpered to PA11 and PA18 to PA19, for `exti` (PA10-PA11
   for `open_drain` too); PA09 to
   PA08, for `nmi`; an SHT40 and BMP280 module on PA22 (SDA) and PA23
