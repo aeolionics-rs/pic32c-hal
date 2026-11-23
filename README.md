@@ -557,8 +557,14 @@ PIC32CM SG00:
   another pin. PORT reads PD00 right, and PD01's EXTINT1 follows a level
   driven from PD00, so group D reaches the EIC. The data sheet
   (DS60001921A table 5-3) and the ATDF both give PD00, and no SG00 errata
-  is published yet. Until Microchip explains it, `Nmi` builds for the
-  SG00 but doesn't work on this silicon; an EXTINT line is the fallback.
+  is published yet. Microchip's own code fails the same way: their
+  Harmony TrustZone EIC example (csp_apps_pic32cm_sg00_gc00), with a
+  Secure NMI on PD00 added as Harmony's `eic_u2804` template generates
+  it, built with XC32 5.10 and DFP 1.2.83, ran (SW0's EXTINT8 worked) and
+  read PD01's toggles back on the jumpered net, but its NMI handler never
+  ran. To raise with Microchip. Until they explain it, `Nmi` builds for
+  the SG00 but doesn't work on this silicon; an EXTINT line is the
+  fallback.
 - The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
   ADC input for it and the CAL OTP no factory readings (the CK's
   FCCFG69-71), so `adc` offers neither yet.
