@@ -544,12 +544,21 @@ PIC32CM PL10:
 
 PIC32CM SG00:
 
-- The NMI on PD00 doesn't see the pin on the bench board: armed for a
-  low level it fires whatever PD00 does, for a high level never, and for
-  edges (asynchronous) never, though PORT reads PD00 right. The same with
-  the EIC's registers written by hand from the boot ROM (2026-11-23). The
-  data sheet (DS60001921A table 5-3) and the ATDF both give PD00. Not yet
-  explained: ask Microchip, or try the NMI filter and the EIC clock.
+- The NMI on PD00 doesn't see the pin on the bench board (silicon
+  revision A.0, DSU.DID `0x0AC08053`): armed for a low level it fires
+  whatever PD00 does, for a high level or an edge (synchronous or
+  asynchronous) never, as if its input were held low inside the chip.
+  Probed by hand over SWD from the boot ROM (2026-11-23), with the same
+  result on every PMUX function of PD00, with the EIC enabled on
+  `CLK_ULP32K` or on `GCLK_EIC` from generator 0, the NMI's filter on or
+  off, with PORT's continuous sampling, and with PD00 and the NMI
+  each Secure or Non-secure (PORT.NONSEC, EIC.NONSEC); with every pin but
+  SWD's pulled up on function A it still fired for low, so it isn't on
+  another pin. PORT reads PD00 right, and PD01's EXTINT1 follows a level
+  driven from PD00, so group D reaches the EIC. The data sheet
+  (DS60001921A table 5-3) and the ATDF both give PD00, and no SG00 errata
+  is published yet. Until Microchip explains it, `Nmi` builds for the
+  SG00 but doesn't work on this silicon; an EXTINT line is the fallback.
 - The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
   ADC input for it and the CAL OTP no factory readings (the CK's
   FCCFG69-71), so `adc` offers neither yet.

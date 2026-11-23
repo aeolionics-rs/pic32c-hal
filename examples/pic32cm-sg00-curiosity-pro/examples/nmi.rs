@@ -5,6 +5,9 @@
 //! `pic32c-hal`'s NMI on the SG00, on PD00 (its NMI pin, EXT1 pin 12, the
 //! headers' I2C SCL), driven by PD01 (EXT1 pin 11, SDA) through a jumper.
 //!
+//! It fails on the bench board (silicon A.0): the NMI acts as if its input
+//! were held low. See the README's to-do list.
+//!
 //! - levels: armed for high with PD01 high, or low with it low, it fires at
 //!   once, and only once (the handler disarms it, so the level doesn't
 //!   keep firing); armed for the other level, it doesn't fire;
