@@ -551,20 +551,23 @@ PIC32CM SG00:
   Probed by hand over SWD from the boot ROM (2026-11-23), with the same
   result on every PMUX function of PD00, with the EIC enabled on
   `CLK_ULP32K` or on `GCLK_EIC` from generator 0, the NMI's filter on or
-  off, with PORT's continuous sampling, and with PD00 and the NMI
-  each Secure or Non-secure (PORT.NONSEC, EIC.NONSEC); with every pin but
-  SWD's pulled up on function A it still fired for low, so it isn't on
-  another pin. PORT reads PD00 right, and PD01's EXTINT1 follows a level
-  driven from PD00, so group D reaches the EIC. The data sheet
-  (DS60001921A table 5-3) and the ATDF both give PD00, and no SG00 errata
-  is published yet. Microchip's own code fails the same way: their
-  Harmony TrustZone EIC example (csp_apps_pic32cm_sg00_gc00), with a
-  Secure NMI on PD00 added as Harmony's `eic_u2804` template generates
-  it, built with XC32 5.10 and DFP 1.2.83, ran (SW0's EXTINT8 worked) and
-  read PD01's toggles back on the jumpered net, but its NMI handler never
-  ran. To raise with Microchip. Until they explain it, `Nmi` builds for
-  the SG00 but doesn't work on this silicon; an EXTINT line is the
-  fallback.
+  off, with PORT's continuous sampling, and with PD00 and the NMI each
+  Secure or Non-secure (PORT.NONSEC, EIC.NONSEC); with every pin but SWD's
+  pulled up on function A it still fired for low, so it isn't on another
+  pin. PORT reads PD00 right, and PD01's EXTINT1 follows a level driven
+  from PD00, so group D reaches the EIC. The data sheet (DS60001921A table
+  5-3) and the ATDF both give PD00. Tested with Microchip's Harmony
+  TrustZone EIC example too (csp_apps_pic32cm_sg00_gc00, XC32 5.10, DFP
+  1.2.83), with a Secure NMI on PD00 added as Harmony's `eic_u2804`
+  template generates it and EXTINT9 on PC09 as a control on the same net:
+  EXTINT9 saw every edge, the NMI handler never ran, asynchronous or
+  synchronous and filtered, configured before or after the EIC enable.
+  The errata (DS80001141A) has one NMI entry, 2.3.1, about spurious NMIs
+  in synchronous edge mode; its workaround's order was among those tried.
+  The repro is branch `sg00-nmi-repro` of
+  [aeolionics-contrib/csp_apps_pic32cm_sg00_gc00](https://github.com/aeolionics-contrib/csp_apps_pic32cm_sg00_gc00/tree/sg00-nmi-repro),
+  to raise with Microchip. Until it's explained, `Nmi` builds for the SG00
+  but doesn't work on this silicon; an EXTINT line is the fallback.
 - The ADC's temperature sensor: SUPC has TSEN, but the data sheet lists no
   ADC input for it and the CAL OTP no factory readings (the CK's
   FCCFG69-71), so `adc` offers neither yet.

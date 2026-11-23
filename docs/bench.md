@@ -51,7 +51,8 @@ its example is being tested.
   while it's in; its RST (PD21) also resets the on-board Ethernet PHY.
 - **SG00:** the mikroBUS socket empty, for `gpio`, `exti` and `spi`; PD01
   jumpered to PD00 (EXT1 pins 11 and 12), for `nmi` and `open_drain` (off
-  for `i2c`, whose device goes on those pins); SERCOM3 to the SG01's EXT2
+  for `i2c`, whose device goes on those pins; pin 10, PC09, joined to them
+  for the Harmony NMI repro's EXTINT9 control); SERCOM3 to the SG01's EXT2
   running `uart_peer`, for `uart_flow`, crossed: SG01 pin 6 (CTS) from
   EXT1 pin 7 (PA01, RTS), pin 16 (TX) to EXT1 pin 9 (PA00, RX), pin 17
   (RTS) to EXT1 pin 8 (PA02, CTS), pin 18 (RX) from EXT2 pin 10 (PD09,
