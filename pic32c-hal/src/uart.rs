@@ -269,6 +269,10 @@ pub(crate) struct State {
     pub(crate) rx_waker: AtomicWaker,
     /// A [`BufferedUart`]'s rings and errors, when one is on the SERCOM.
     pub(crate) buffered: buffered::State,
+    /// An async [`Spi`](crate::spi::Spi)'s transfer under way, on a chip
+    /// with no DMA controller, whose interrupt moves the bytes.
+    #[cfg(not(dma))]
+    pub(crate) spi: crate::spi::IrqState,
     /// The SERCOM's core clock, for changing the baud rate from either half.
     clock_hz: AtomicU32,
     /// The SERCOM's GCLK peripheral channel, and its RX pin
@@ -291,6 +295,8 @@ impl State {
             tx_waker: AtomicWaker::new(),
             rx_waker: AtomicWaker::new(),
             buffered: buffered::State::new(),
+            #[cfg(not(dma))]
+            spi: crate::spi::IrqState::new(),
             clock_hz: AtomicU32::new(0),
             gclk_channel,
             rx_pin: AtomicU32::new(NO_PIN),
@@ -511,6 +517,11 @@ pub struct InterruptHandler<T: Instance> {
 pub(crate) fn on_interrupt<T: Instance>() {
     if T::state().buffered.active() {
         buffered::on_interrupt(T::BASE, T::state());
+        return;
+    }
+    #[cfg(not(dma))]
+    if T::state().spi.active() {
+        crate::spi::on_interrupt(T::BASE, T::state());
         return;
     }
     let enabled = read8(T::BASE, INTENSET);

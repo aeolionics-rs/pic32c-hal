@@ -80,6 +80,7 @@ pic32c-hal = { path = "../../pic32c-hal", features = ["exti", "pic32cm3204gv0006
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
 embedded-storage = "0.3.2"
 embedded-storage-async = "0.4.2"
 # The bench programs' I2C sensor, on embedded-hal-async.

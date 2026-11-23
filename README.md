@@ -341,8 +341,9 @@ The plan is to publish to crates.io once these have stabilized.
   the CPU's rate; `gpio` (`port_v0`: `port_v1` with drive strength in place
   of slew control); `uart` blocking and `BufferedUart` (`sercom_v0`: the
   registers at other offsets, synchronisation in STATUS.SYNCBUSY, no ERROR
-  interrupt, no FIFO, no RTS/CTS); `spi` blocking only (no DMA; SCK rated
-  to 8 MHz) and `i2c` blocking and on interrupts (Standard and Fast mode:
+  interrupt, no FIFO, no RTS/CTS); `spi` blocking, and async with the
+  SERCOM's interrupt moving each byte in place of DMA (SCK rated to 8 MHz)
+  and `i2c` blocking and on interrupts (Standard and Fast mode:
   no Fast-mode Plus, so 400 kHz at most); `flash` (a driver of its own for
   its NVMCTRL, behind the others' API: 256-byte rows erased, 32-bit words
   written through the 64-byte page buffer and a Write Page command,
@@ -393,7 +394,11 @@ The plan is to publish to crates.io once these have stabilized.
   write and in 64-byte writes, and 20,000 in 256-byte writes; `spi` at 1
   to 8 MHz (a faster request held to 7.995 MHz) from 47.97 MHz, the four
   modes and LSB first, unequal lengths and in place, 256 bytes in 707 µs
-  at 8 MHz; and `i2c` against an SHT40 and a BMP280 on one module (its
+  at 8 MHz, and async on the interrupt: the same transfers, 256 bytes in
+  1.61 ms at 8 MHz and 3.41 ms at 1 MHz (about 6 µs of interrupt a byte
+  at 48 MHz, so the CPU is mostly in it at 8 MHz: a ticker task ran 12
+  times in that 1.61 ms), a transfer dropped part way stopped with the
+  bus working after; and `i2c` against an SHT40 and a BMP280 on one module (its
   4.7 kΩ pull-ups): the scan, a NACK, reads whole and in parts, on
   interrupts at 100 and 400 kHz, 1 MHz refused, and the SHT40 by the
   `sht4x` driver; `flash` and `flash_async` (row erase 1.17 ms, a 64-byte
@@ -530,8 +535,10 @@ PIC32CM SG00:
 
 PIC32CM GV00:
 
-- No DMA controller, so no `dma` and no DMA modes in the SERCOM drivers:
-  an async `spi` would need to run on its interrupts.
+- No DMA controller, so no `dma` and no DMA modes in the SERCOM drivers.
+  The async `spi` moves a byte per interrupt; keeping a second byte in
+  the transmit buffer would halve its interrupts, if the receiver's
+  two-deep buffer allows it (not yet tried).
 - The temperature sensor: the data sheet gives only typical figures
   (0.667 V at 25 °C, 2.4 mV/°C, ±10 °C) and no factory calibration (the
   ATDF names a `TEMP_LOG` area the data sheet doesn't describe); by those

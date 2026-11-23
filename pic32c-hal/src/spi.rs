@@ -23,12 +23,24 @@
 //! wiring; the pin still drives MOSI).
 //!
 //! `sercom_v0` (the GV00's, the SAM D20's) has its registers at other
-//! offsets and synchronises through STATUS.SYNCBUSY; with no DMA controller
-//! it has only [`Spi::new_blocking`] and [`Spi::new_blocking_txonly`], and
-//! no slew control. Its SCK is rated to 8 MHz.
+//! offsets and synchronises through STATUS.SYNCBUSY, and no slew control.
+//! Its SCK is rated to 8 MHz. With no DMA controller, its [`Spi::new`] and
+//! [`Spi::new_txonly`] take a [`bind_interrupts!`](crate::bind_interrupts)
+//! type binding the SERCOM's vector to [`InterruptHandler`] instead of two
+//! channels, and the interrupt moves the bytes, one per RXC (or DRE, with
+//! no receiver), into and out of the caller's buffers: the future only
+//! waits for it to finish. A future dropped part way stops the transfer
+//! before it returns.
 
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
+
+#[cfg(not(dma))]
+use core::future::poll_fn;
+#[cfg(not(dma))]
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+#[cfg(not(dma))]
+use core::task::Poll;
 
 #[cfg(dma)]
 use embassy_futures::join::join;
@@ -39,9 +51,9 @@ use crate::dma::{self, AnyChannel, Request, Transfer};
 use crate::gpio::{AnyPin, Function, set_function};
 #[cfg(not(port_v0))]
 use crate::gpio::{Slew, set_slew};
-#[cfg(dma)]
-use crate::mode::Async;
-use crate::mode::Blocking;
+#[cfg(not(dma))]
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt as _};
+use crate::mode::{Async, Blocking};
 use crate::uart::Instance;
 use crate::{Peri, gpio};
 
@@ -67,6 +79,10 @@ const INTFLAG: usize = 0x0E;
 const STATUS: usize = 0x10;
 #[cfg(sercom_v0)]
 const DATA: usize = 0x18;
+#[cfg(all(not(dma), sercom_v0))]
+const INTENCLR: usize = 0x0C;
+#[cfg(all(not(dma), sercom_v0))]
+const INTENSET: usize = 0x0D;
 /// STATUS.SYNCBUSY (`sercom_v0`): any write still synchronising.
 #[cfg(sercom_v0)]
 const STATUS_SYNCBUSY: u16 = 1 << 15;
@@ -209,6 +225,10 @@ pub struct Spi<'d, M> {
     frequency: u32,
     #[cfg(dma)]
     dma: Option<(Peri<'d, AnyChannel>, Peri<'d, AnyChannel>)>,
+    /// The SERCOM's shared state, whose `spi` the interrupt runs a transfer
+    /// from (no DMA controller).
+    #[cfg(not(dma))]
+    state: &'static crate::uart::State,
     _mode: PhantomData<(&'d (), M)>,
 }
 
@@ -407,6 +427,310 @@ fn start_tx<'a>(channel: &'a mut Peri<'_, AnyChannel>, request: Request, write: 
     }
 }
 
+/// The SERCOM's interrupt handler, shared with [`uart`](crate::uart): bind
+/// the SERCOM's vector to it for [`Spi::new`] (on a chip with no DMA
+/// controller, the GV00: `SERCOMn`).
+#[cfg(not(dma))]
+pub type InterruptHandler<T> = crate::uart::InterruptHandler<T>;
+
+/// A transfer the interrupt runs (chips with no DMA controller): where its
+/// bytes come from and go, and how far it's got. Only the transfer's future
+/// sets it up and the interrupt moves it on, one byte at a time, so plain
+/// loads and stores do (no read-modify-write).
+#[cfg(not(dma))]
+pub(crate) struct IrqState {
+    active: AtomicBool,
+    read: AtomicPtr<u8>,
+    read_len: AtomicUsize,
+    write: AtomicPtr<u8>,
+    write_len: AtomicUsize,
+    count: AtomicUsize,
+    sent: AtomicUsize,
+    received: AtomicUsize,
+    receives: AtomicBool,
+    overrun: AtomicBool,
+}
+
+#[cfg(not(dma))]
+impl IrqState {
+    pub(crate) const fn new() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            read: AtomicPtr::new(core::ptr::null_mut()),
+            read_len: AtomicUsize::new(0),
+            write: AtomicPtr::new(core::ptr::null_mut()),
+            write_len: AtomicUsize::new(0),
+            count: AtomicUsize::new(0),
+            sent: AtomicUsize::new(0),
+            received: AtomicUsize::new(0),
+            receives: AtomicBool::new(false),
+            overrun: AtomicBool::new(false),
+        }
+    }
+
+    /// Whether a transfer is under way (the interrupt's to run).
+    pub(crate) fn active(&self) -> bool {
+        self.active.load(Ordering::Acquire)
+    }
+
+    /// The byte to send at `index`: the write buffer's, or 0 past it.
+    fn next(&self, index: usize) -> u8 {
+        if index < self.write_len.load(Ordering::Relaxed) {
+            // SAFETY: `index` is inside the write buffer, which the
+            // transfer's future keeps alive until the transfer stops.
+            unsafe { self.write.load(Ordering::Relaxed).add(index).read() }
+        } else {
+            0
+        }
+    }
+
+    fn finish(&self, state: &crate::uart::State) {
+        self.active.store(false, Ordering::Release);
+        state.tx_waker.wake();
+    }
+}
+
+/// The SERCOM's interrupt during an async transfer: with the receiver on,
+/// each byte in (RXC) is stored and the next sent, until the last is in;
+/// without, the next is sent on DRE until none is left, then TXC ends it.
+#[cfg(not(dma))]
+pub(crate) fn on_interrupt(base: usize, state: &crate::uart::State) {
+    let s = &state.spi;
+    let count = s.count.load(Ordering::Relaxed);
+    let fired = read8(base, INTFLAG) & read8(base, INTENSET);
+    if s.receives.load(Ordering::Relaxed) {
+        if fired & RXC != 0 {
+            if read16(base, STATUS) & BUFOVF != 0 {
+                write16(base, STATUS, BUFOVF);
+                s.overrun.store(true, Ordering::Relaxed);
+            }
+            let byte = read_data(base);
+            let received = s.received.load(Ordering::Relaxed);
+            if received < s.read_len.load(Ordering::Relaxed) {
+                // SAFETY: inside the read buffer, kept alive as the write
+                // buffer is. In place, this byte's index was sent already.
+                unsafe { s.read.load(Ordering::Relaxed).add(received).write(byte) };
+            }
+            s.received.store(received + 1, Ordering::Relaxed);
+            let sent = s.sent.load(Ordering::Relaxed);
+            if sent < count {
+                write_data(base, s.next(sent));
+                s.sent.store(sent + 1, Ordering::Relaxed);
+            }
+            if received + 1 == count {
+                write8(base, INTENCLR, RXC);
+                s.finish(state);
+            }
+        }
+    } else {
+        if fired & DRE != 0 {
+            let sent = s.sent.load(Ordering::Relaxed);
+            if sent < count {
+                write_data(base, s.next(sent));
+                s.sent.store(sent + 1, Ordering::Relaxed);
+            } else {
+                write8(base, INTENCLR, DRE);
+                write8(base, INTENSET, TXC);
+            }
+        }
+        if fired & TXC != 0 {
+            write8(base, INTENCLR, TXC);
+            s.finish(state);
+        }
+    }
+}
+
+/// Runs `f` when dropped, unless defused: stops a transfer whose future is
+/// dropped part way.
+#[cfg(not(dma))]
+struct OnDrop<F: FnOnce()>(Option<F>);
+
+#[cfg(not(dma))]
+impl<F: FnOnce()> OnDrop<F> {
+    fn defuse(mut self) {
+        self.0 = None;
+    }
+}
+
+#[cfg(not(dma))]
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f();
+        }
+    }
+}
+
+#[cfg(not(dma))]
+impl<'d> Spi<'d, Async> {
+    /// An SPI host as [`Spi::new_blocking`], its async transfers moved by
+    /// the SERCOM's interrupt, which `irqs` binds to [`InterruptHandler`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Spi::new_blocking`].
+    #[allow(clippy::needless_pass_by_value, reason = "taking them is what makes them the SPI's")]
+    pub fn new<T: Instance, const DO: u8, const DI: u8, const IOSET: u8>(
+        sercom: Peri<'d, T>,
+        sck: Peri<'d, impl Pad<T, 1, IOSET>>,
+        mosi: Peri<'d, impl Pad<T, DO, IOSET>>,
+        miso: Peri<'d, impl Pad<T, DI, IOSET>>,
+        _irqs: impl Binding<T::Dre, InterruptHandler<T>> + Binding<T::Txc, InterruptHandler<T>> + Binding<T::Rxc, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError>
+    where
+        InterruptHandler<T>: Handler<T::Dre> + Handler<T::Txc> + Handler<T::Rxc>,
+    {
+        const { check_pads(DO, Some(DI)) };
+        let _ = sercom;
+        set_function(&*miso, miso.function());
+        let spi = Self::start::<T>(&*sck, sck.function(), &*mosi, mosi.function(), DO, Some(DI), None, config)?;
+        unmask::<T>();
+        Ok(spi)
+    }
+
+    /// An SPI host as [`Spi::new_blocking_txonly`], its async transfers on
+    /// the interrupt, as [`Spi::new`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Spi::new_blocking`].
+    #[allow(clippy::needless_pass_by_value, reason = "taking them is what makes them the SPI's")]
+    pub fn new_txonly<T: Instance, const DO: u8, const IOSET: u8>(
+        sercom: Peri<'d, T>,
+        sck: Peri<'d, impl Pad<T, 1, IOSET>>,
+        mosi: Peri<'d, impl Pad<T, DO, IOSET>>,
+        _irqs: impl Binding<T::Dre, InterruptHandler<T>> + Binding<T::Txc, InterruptHandler<T>> + Binding<T::Rxc, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError>
+    where
+        InterruptHandler<T>: Handler<T::Dre> + Handler<T::Txc> + Handler<T::Rxc>,
+    {
+        const { check_pads(DO, None) };
+        let _ = sercom;
+        let spi = Self::start::<T>(&*sck, sck.function(), &*mosi, mosi.function(), DO, None, None, config)?;
+        unmask::<T>();
+        Ok(spi)
+    }
+
+    /// Sends `write` and reads into `read` at once, as embedded-hal's
+    /// `SpiBus::transfer`: the shorter is padded (zeros sent, bytes read
+    /// thrown away).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Overrun`] if the receiver lost a byte.
+    pub async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        let count = read.len().max(write.len());
+        // SAFETY: both buffers outlive the exchange, which stops before it
+        // returns or is dropped.
+        unsafe { self.irq_exchange(read.as_mut_ptr(), read.len(), write.as_ptr(), write.len(), count) }.await
+    }
+
+    /// Sends `words` and reads into them what comes back.
+    ///
+    /// # Errors
+    ///
+    /// As [`transfer`](Self::transfer).
+    pub async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        let (n, at) = (words.len(), words.as_mut_ptr());
+        // SAFETY: as for `transfer`; the interrupt sends each byte before
+        // it stores the one that came back in its place.
+        unsafe { self.irq_exchange(at, n, at.cast_const(), n, n) }.await
+    }
+
+    /// Reads `words`, sending zeros.
+    ///
+    /// # Errors
+    ///
+    /// As [`transfer`](Self::transfer).
+    pub async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        let n = words.len();
+        // SAFETY: as for `transfer`.
+        unsafe { self.irq_exchange(words.as_mut_ptr(), n, core::ptr::null(), 0, n) }.await
+    }
+
+    /// Sends `words`, throwing away what comes back.
+    ///
+    /// # Errors
+    ///
+    /// As [`transfer`](Self::transfer).
+    pub async fn write(&mut self, words: &[u8]) -> Result<(), Error> {
+        // SAFETY: as for `transfer`.
+        unsafe { self.irq_exchange(core::ptr::null_mut(), 0, words.as_ptr(), words.len(), words.len()) }.await
+    }
+
+    /// Moves `count` bytes on the interrupt: from `write` (`write_len` of
+    /// them, then zeros) into `read` (the first `read_len`).
+    ///
+    /// # Safety
+    ///
+    /// The buffers must stay valid until this returns or is dropped (the
+    /// drop stops the transfer first).
+    async unsafe fn irq_exchange(&mut self, read: *mut u8, read_len: usize, write: *const u8, write_len: usize, count: usize) -> Result<(), Error> {
+        if count == 0 {
+            return Ok(());
+        }
+        let (base, state) = (self.base, self.state);
+        let s = &state.spi;
+        let receives = self.receives;
+        s.read.store(read, Ordering::Relaxed);
+        s.read_len.store(if receives { read_len } else { 0 }, Ordering::Relaxed);
+        s.write.store(write.cast_mut(), Ordering::Relaxed);
+        s.write_len.store(write_len, Ordering::Relaxed);
+        s.count.store(count, Ordering::Relaxed);
+        s.received.store(0, Ordering::Relaxed);
+        s.receives.store(receives, Ordering::Relaxed);
+        s.overrun.store(false, Ordering::Relaxed);
+        // TXC stays set from the last byte until cleared.
+        write8(base, INTFLAG, TXC);
+        let guard = OnDrop(Some(|| {
+            // Dropped part way: no more bytes, then let the last one finish
+            // and throw away what came back.
+            write8(base, INTENCLR, RXC | DRE | TXC);
+            s.active.store(false, Ordering::Release);
+            while read8(base, INTFLAG) & DRE == 0 {}
+            while read8(base, INTFLAG) & TXC == 0 {}
+            while read8(base, INTFLAG) & RXC != 0 {
+                let _ = read_data(base);
+            }
+        }));
+        critical_section::with(|_| {
+            s.active.store(true, Ordering::Release);
+            if receives {
+                // One byte at a time: the next goes when this one is in.
+                s.sent.store(1, Ordering::Relaxed);
+                write8(base, INTENSET, RXC);
+                write_data(base, s.next(0));
+            } else {
+                s.sent.store(0, Ordering::Relaxed);
+                write8(base, INTENSET, DRE);
+            }
+        });
+        poll_fn(|cx| {
+            state.tx_waker.register(cx.waker());
+            if s.active() { Poll::Pending } else { Poll::Ready(()) }
+        })
+        .await;
+        guard.defuse();
+        if s.overrun.load(Ordering::Relaxed) { Err(Error::Overrun) } else { Ok(()) }
+    }
+}
+
+/// Unmasks the SERCOM's vectors (one, on the chips with no DMA controller).
+#[cfg(not(dma))]
+fn unmask<T: Instance>() {
+    T::Dre::unpend();
+    T::Txc::unpend();
+    T::Rxc::unpend();
+    // SAFETY: the binding makes each vector call the handler.
+    unsafe {
+        T::Dre::enable();
+        T::Txc::enable();
+        T::Rxc::enable();
+    }
+}
+
 /// The pads' rules: MOSI on pad 0 or 3, MISO on neither SCK's pad (1) nor
 /// MOSI's.
 const fn check_pads(mosi: u8, miso: Option<u8>) {
@@ -442,6 +766,8 @@ impl<'d, M> Spi<'d, M> {
             frequency: 0,
             #[cfg(dma)]
             dma,
+            #[cfg(not(dma))]
+            state: T::state(),
             _mode: PhantomData,
         };
         spi.set_config(&config)?;
@@ -645,12 +971,10 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Blocking> {
     }
 }
 
-#[cfg(dma)]
 impl embedded_hal::spi::ErrorType for Spi<'_, Async> {
     type Error = Error;
 }
 
-#[cfg(dma)]
 impl embedded_hal::spi::SpiBus for Spi<'_, Async> {
     fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         self.blocking_transfer(words, &[])
@@ -674,7 +998,6 @@ impl embedded_hal::spi::SpiBus for Spi<'_, Async> {
     }
 }
 
-#[cfg(dma)]
 impl embedded_hal_async::spi::SpiBus for Spi<'_, Async> {
     async fn read(&mut self, words: &mut [u8]) -> Result<(), Error> {
         Spi::read(self, words).await
@@ -693,7 +1016,7 @@ impl embedded_hal_async::spi::SpiBus for Spi<'_, Async> {
     }
 
     async fn flush(&mut self) -> Result<(), Error> {
-        // Each DMA transfer ends with its last byte in, or out.
+        // Each transfer ends with its last byte in, or out.
         core::future::ready(Ok(())).await
     }
 }
