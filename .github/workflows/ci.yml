@@ -78,6 +78,8 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} --examples -- -D warnings
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},tls --example eth_https --example crypto_bench -- -D warnings
+      # pic32c-boot's reference bootloader for the board.
+      - run: cargo clippy --release -p pic32ck-boot --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} -- -D warnings
 
   pl10-board:
     runs-on: ubuntu-latest

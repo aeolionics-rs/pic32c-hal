@@ -1249,6 +1249,7 @@ name = "pic32c-boot"
 version = "0.1.0"
 dependencies = [
  "embedded-storage",
+ "sha2",
 ]
 
 [[package]]
@@ -1285,6 +1286,17 @@ dependencies = [
  "rand_core 0.6.4",
  "rand_core 0.9.5",
  "xarxa-driver",
+]
+
+[[package]]
+name = "pic32ck-boot"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "panic-halt",
+ "pic32c-boot",
+ "pic32c-hal",
 ]
 
 [[package]]

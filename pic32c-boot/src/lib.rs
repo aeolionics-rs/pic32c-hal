@@ -10,8 +10,10 @@
 //! - [`log`]: the boot log in two pages of flash, behind a small [`log::Flash`] trait, so it too
 //!   runs on the host, against a simulated flash that loses power mid-write or mid-erase.
 //! - [`nor`]: the log's pages on any `embedded-storage` NOR flash, such as pic32c-hal's.
+//! - [`image`]: an image's header, found through its vector table, and the check it's whole.
 //!
-//! Finding and checking the images, swapping the panels and jumping come later, around them.
+//! The bootloader around them, which swaps the panels and jumps, is the PIC32CK's reference one
+//! in pic32c-hal's `examples/pic32ck-boot`.
 //!
 //! The scheme, on a part with two program flash panels (the PIC32CK):
 //!
@@ -29,6 +31,7 @@
 #![no_std]
 
 mod decide;
+pub mod image;
 pub mod log;
 pub mod nor;
 

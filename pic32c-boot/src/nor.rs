@@ -144,8 +144,8 @@ mod tests {
         }
         fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), RamError> {
             let at = offset as usize;
-            for word in at / W..(at + bytes.len()) / W {
-                if core::mem::replace(&mut self.written[word], true) {
+            for written in &mut self.written[at / W..(at + bytes.len()) / W] {
+                if core::mem::replace(written, true) {
                     return Err(RamError::Twice);
                 }
             }
