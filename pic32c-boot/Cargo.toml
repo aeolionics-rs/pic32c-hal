@@ -9,5 +9,9 @@ keywords = ["pic32ck", "microchip", "bootloader", "no-std"]
 categories = ["embedded", "no-std"]
 publish = false
 
+[dependencies]
+# The flash the log's pages are on (pic32c-hal's `flash::Flash` implements it).
+embedded-storage = "0.3.2"
+
 [lints]
 workspace = true

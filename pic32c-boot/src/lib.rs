@@ -9,9 +9,9 @@
 //!   reset, so the part with the rules has no flash, registers or jumps in it.
 //! - [`log`]: the boot log in two pages of flash, behind a small [`log::Flash`] trait, so it too
 //!   runs on the host, against a simulated flash that loses power mid-write or mid-erase.
+//! - [`nor`]: the log's pages on any `embedded-storage` NOR flash, such as pic32c-hal's.
 //!
-//! Finding and checking the images, the flash driver behind the log, swapping the panels and
-//! jumping come later, around them.
+//! Finding and checking the images, swapping the panels and jumping come later, around them.
 //!
 //! The scheme, on a part with two program flash panels (the PIC32CK):
 //!
@@ -30,5 +30,6 @@
 
 mod decide;
 pub mod log;
+pub mod nor;
 
 pub use decide::{Decision, Image, ImageId, Policy, Record, ResetCause};

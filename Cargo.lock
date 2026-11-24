@@ -1247,6 +1247,9 @@ dependencies = [
 [[package]]
 name = "pic32c-boot"
 version = "0.1.0"
+dependencies = [
+ "embedded-storage",
+]
 
 [[package]]
 name = "pic32c-hal"
@@ -1314,6 +1317,7 @@ dependencies = [
  "p256",
  "p256-cortex-m4",
  "panic-halt",
+ "pic32c-boot",
  "pic32c-hal",
  "picoserve",
  "pkcs8",

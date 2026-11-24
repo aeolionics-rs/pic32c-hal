@@ -117,6 +117,11 @@ test = false
 bench = false
 
 [[example]]
+name = "boot_log"
+test = false
+bench = false
+
+[[example]]
 name = "flash"
 test = false
 bench = false
@@ -231,6 +236,7 @@ x25519-dalek = { version = "3.0.0", default-features = false, features = ["stati
 
 # What the examples use.
 [dev-dependencies]
+pic32c-boot = { path = "../../pic32c-boot" }
 embassy-embedded-hal = "0.6.0"
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
 embassy-futures = "0.1.2"
