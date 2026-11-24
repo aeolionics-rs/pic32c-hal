@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-gv-curiosity-nano", "examples/pic32cm-pl10-curiosity-nano", "examples/pic32cm-sg00-curiosity-pro","pac/pic32ck-gc01-pac", "pac/pic32ck-sg01-pac", "pac/pic32cm-gv00-pac", "pac/pic32cm-pl10-pac", "pac/pic32cm-sg00-pac", "pic32c-hal"]
+members = ["examples/pic32ck-curiosity-ultra", "examples/pic32cm-gv-curiosity-nano", "examples/pic32cm-pl10-curiosity-nano", "examples/pic32cm-sg00-curiosity-pro","pac/pic32ck-gc01-pac", "pac/pic32ck-sg01-pac", "pac/pic32cm-gv00-pac", "pac/pic32cm-pl10-pac", "pac/pic32cm-sg00-pac", "pic32c-boot", "pic32c-hal"]
 
 [workspace.package]
 version = "0.1.0"
@@ -17,6 +17,10 @@ pedantic = { level = "warn", priority = -1 }
 # Symbols don't take flash space.
 debug = true
 opt-level = "s"
+
+# Host tests of pic32c-boot unoptimized, for stepping through them in a debugger.
+[profile.test.package.pic32c-boot]
+opt-level = 0
 
 [profile.release]
 debug = true

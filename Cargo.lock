@@ -1245,6 +1245,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pic32c-boot"
+version = "0.1.0"
+
+[[package]]
 name = "pic32c-hal"
 version = "0.1.0"
 dependencies = [

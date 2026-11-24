@@ -31,6 +31,9 @@ jobs:
       - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
       - run: cargo test -p pic32c-hal --features pic32cm6408pl10048 --lib
       - run: cargo test -p pic32c-hal --features pic32cm3204gv00064 --lib
+      # The bootloader's decision (pic32c-boot), a pure function.
+      - run: cargo clippy -p pic32c-boot --all-targets -- -D warnings
+      - run: cargo test -p pic32c-boot
 
   # The HAL for each chip, every feature that chip has.
   chip:

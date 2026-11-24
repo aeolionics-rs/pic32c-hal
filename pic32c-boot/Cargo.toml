@@ -1,0 +1,13 @@
+[package]
+name = "pic32c-boot"
+description = "A bootloader for Microchip's PIC32C: which flash panel's image to run, decided by a pure function from what each panel holds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords = ["pic32ck", "microchip", "bootloader", "no-std"]
+categories = ["embedded", "no-std"]
+publish = false
+
+[lints]
+workspace = true
