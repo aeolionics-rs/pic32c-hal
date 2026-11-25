@@ -27,7 +27,8 @@
 //! - [`mode`]: the [`Blocking`](mode::Blocking) and [`Async`](mode::Async)
 //!   driver modes;
 //! - [`trng`]: the true random number generator, with the `rand_core`
-//!   0.6, 0.9 and 0.10 traits;
+//!   0.6, 0.9 and 0.10 traits, or (feature `embassy-crypto-rng`) as
+//!   `embassy-crypto`'s health-checked random number driver;
 //! - [`wdt`]: the watchdog, and why the chip last reset;
 //! - [`i2c`]: a SERCOM as an I2C host, blocking or on interrupts, with
 //!   embedded-hal and embedded-hal-async;

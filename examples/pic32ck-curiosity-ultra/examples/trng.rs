@@ -4,11 +4,10 @@
 
 //! `pic32c-hal`'s `trng`: the TRNG's bus clock as reset leaves it (MCLK
 //! CLKMSK3 bit 16), the time per word blocking and waiting on the
-//! interrupt, and sanity statistics over 2 Mbit (65,536 words): the share
-//! of ones, a chi-square over byte values (255 degrees of freedom), the
-//! longest run of equal bits, and repeated consecutive words. These catch
-//! a stuck or biased source, not a subtly weak one. The first words go out
-//! too, to compare boards and boots. Over the virtual COM port.
+//! interrupt, and sanity statistics over 2 Mbit (65,536 words; see
+//! `common/rng_stats.rs`). The first words go out too, to compare boards and
+//! boots. Over the virtual COM port. Built without `tls`, which gives the
+//! TRNG to embassy-crypto (`crypto_rng` checks that side).
 
 #![no_std]
 #![no_main]
@@ -28,72 +27,15 @@ use pic32ck_curiosity_ultra::uart::Uart;
 
 pic32ck_curiosity_ultra::boot!();
 
+#[path = "common/rng_stats.rs"]
+mod rng_stats;
+use rng_stats::{Stats, WORDS};
+
 bind_interrupts!(struct Irqs {
     TRNG => trng::InterruptHandler;
 });
 
 const CLKMSK3: usize = 0x4401_2000 + 0x3C + 3 * 4;
-const WORDS: u32 = 65_536;
-
-/// Running statistics over the words as they come.
-struct Stats {
-    ones: u64,
-    bytes: [u32; 256],
-    run: u32,
-    longest: u32,
-    last_bit: bool,
-    last_word: Option<u32>,
-    repeats: u32,
-}
-
-impl Stats {
-    const fn new() -> Self {
-        Self {
-            ones: 0,
-            bytes: [0; 256],
-            run: 0,
-            longest: 0,
-            last_bit: false,
-            last_word: None,
-            repeats: 0,
-        }
-    }
-
-    fn add(&mut self, word: u32) {
-        self.ones += u64::from(word.count_ones());
-        for byte in word.to_le_bytes() {
-            self.bytes[usize::from(byte)] += 1;
-        }
-        for i in 0..32 {
-            let bit = word >> i & 1 != 0;
-            if bit == self.last_bit {
-                self.run += 1;
-            } else {
-                self.run = 1;
-                self.last_bit = bit;
-            }
-            self.longest = self.longest.max(self.run);
-        }
-        if self.last_word == Some(word) {
-            self.repeats += 1;
-        }
-        self.last_word = Some(word);
-    }
-
-    /// Chi-square of the byte counts against a uniform spread.
-    fn chi_square(&self) -> f32 {
-        #[expect(clippy::cast_precision_loss, reason = "counts up to 2^18, exact in f32")]
-        let expected = (WORDS * 4) as f32 / 256.0;
-        self.bytes
-            .iter()
-            .map(|&n| {
-                #[expect(clippy::cast_precision_loss, reason = "as above")]
-                let d = n as f32 - expected;
-                d * d / expected
-            })
-            .sum()
-    }
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -135,26 +77,7 @@ async fn main(_spawner: Spawner) {
     for _ in 0..WORDS {
         stats.add(rng.next_u32_blocking());
     }
-    let bits = u64::from(WORDS) * 32;
-    #[expect(clippy::cast_precision_loss, reason = "2^21 bits, exact in f32")]
-    let share = stats.ones as f32 / bits as f32;
-    let chi = stats.chi_square();
-    // Bounds well past chance for a good source: the share's sd is 0.00035,
-    // the chi-square's 99.9th percentile is ~330, a run past 40 in 2^21
-    // bits is under one in a million, and a repeat one in 2^32 per word.
-    let checks = [
-        ("share of ones", (0.497..0.503).contains(&share)),
-        ("byte chi-square", chi < 330.0),
-        ("longest run", stats.longest <= 40),
-        ("repeated words", stats.repeats == 0),
-    ];
-    let _ = writeln!(log, "2 Mbit: ones {share:.5}, chi-square {chi:.1}, longest run {}, repeated words {}", stats.longest, stats.repeats);
-    for (name, good) in checks {
-        if !good {
-            let _ = writeln!(log, "{name}: FAILED");
-            failures += 1;
-        }
-    }
+    failures += stats.report(&mut log);
 
     drop(rng);
     let mut rng = Trng::new(p.TRNG, Irqs);
