@@ -1249,6 +1249,7 @@ name = "pic32c-boot"
 version = "0.1.0"
 dependencies = [
  "embedded-storage",
+ "embedded-storage-async",
  "sha2",
 ]
 

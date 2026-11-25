@@ -26,7 +26,9 @@
 //! the next flip, and the decision's fallback then applies.
 //!
 //! [`Flash`] is the storage, two pages of [`Flash::BLOCKS`] blocks, so the log runs on the host
-//! against a simulated flash as on the part.
+//! against a simulated flash as on the part. [`Log`] drives it blocking, for a bootloader;
+//! [`AsyncLog`] drives an [`AsyncFlash`] for an application on an executor, so an erase (some
+//! 20 ms on the PIC32CK) waits without holding the executor. Both read and write the same log.
 
 use crate::decide::{ImageId, Record};
 
@@ -138,15 +140,9 @@ struct Page {
     newest: Option<u16>,
 }
 
-fn scan<F: Flash>(flash: &mut F, page: usize) -> Page {
-    let end = (0..F::BLOCKS).rev().find(|&b| flash.read(page, b) != ERASED).map_or(0, |b| b + 1);
-    let newest = (0..end).rev().find_map(|b| decode(&flash.read(page, b))).map(|(_, seq)| seq);
-    Page { end, newest }
-}
-
-/// The boot log on `F`.
-pub struct Log<F> {
-    flash: F,
+/// Where the log is, whichever way its flash is driven: [`Log`] and [`AsyncLog`] share it.
+#[derive(Clone, Copy, Debug)]
+struct Cursor {
     /// The current page.
     current: usize,
     /// The next free block in the current page.
@@ -157,10 +153,9 @@ pub struct Log<F> {
     seq: u16,
 }
 
-impl<F: Flash> Log<F> {
-    /// The log on `flash`, as the last power cut left it.
-    pub fn open(mut flash: F) -> Self {
-        let pages = [scan(&mut flash, 0), scan(&mut flash, 1)];
+impl Cursor {
+    /// The log as `pages` were found: the current page is the one whose newest record is newer.
+    fn new(pages: &[Page; 2]) -> Self {
         let current = match (pages[0].newest, pages[1].newest) {
             (Some(a), Some(b)) => usize::from(newer(b, a)),
             (None, Some(_)) => 1,
@@ -168,12 +163,82 @@ impl<F: Flash> Log<F> {
         };
         let seq = pages[current].newest.map_or(0, |s| s.wrapping_add(1));
         Self {
-            flash,
             current,
             next: pages[current].end,
             older: pages[1 - current].end,
             seq,
         }
+    }
+
+    /// The blocks to read, newest first: the current page's, then the other's.
+    fn blocks(self) -> impl Iterator<Item = (usize, usize)> {
+        let (page, next, older) = (self.current, self.next, self.older);
+        (0..next).rev().map(move |b| (page, b)).chain((0..older).rev().map(move |b| (1 - page, b)))
+    }
+
+    /// Where the next record goes in pages of `blocks`: its page and block, and whether that
+    /// page has to be erased first (a flip).
+    fn place(self, blocks: usize) -> (usize, usize, bool) {
+        if self.next == blocks { (1 - self.current, 0, true) } else { (self.current, self.next, false) }
+    }
+
+    /// The record placed by [`place`](Self::place) is written (or `flipped` and written).
+    fn advance(&mut self, blocks: usize, flipped: bool) {
+        if flipped {
+            self.current = 1 - self.current;
+            self.older = blocks;
+            self.next = 0;
+        }
+        self.next += 1;
+        self.seq = self.seq.wrapping_add(1);
+    }
+
+    /// The flip is done but the write after it failed: the record isn't there, its number not
+    /// used.
+    fn flipped(&mut self, blocks: usize) {
+        self.current = 1 - self.current;
+        self.older = blocks;
+        // The block the write was cut short in isn't written over.
+        self.next = 1;
+    }
+}
+
+/// The unbroken run of sequence numbers back from the newest record: a gap means what an erase
+/// left behind, and ends the log.
+#[derive(Default)]
+struct Run {
+    expect: Option<u16>,
+}
+
+impl Run {
+    /// The record in `block`, if it's whole and continues the run; `Err` once the run ends.
+    fn take(&mut self, block: &[u8; BLOCK]) -> Result<Option<Record>, ()> {
+        let Some((record, seq)) = decode(block) else { return Ok(None) };
+        if self.expect.is_some_and(|e| e != seq) {
+            return Err(());
+        }
+        self.expect = Some(seq.wrapping_sub(1));
+        Ok(Some(record))
+    }
+}
+
+fn scan<F: Flash>(flash: &mut F, page: usize) -> Page {
+    let end = (0..F::BLOCKS).rev().find(|&b| flash.read(page, b) != ERASED).map_or(0, |b| b + 1);
+    let newest = (0..end).rev().find_map(|b| decode(&flash.read(page, b))).map(|(_, seq)| seq);
+    Page { end, newest }
+}
+
+/// The boot log on `F`, blocking: for a bootloader.
+pub struct Log<F> {
+    flash: F,
+    at: Cursor,
+}
+
+impl<F: Flash> Log<F> {
+    /// The log on `flash`, as the last power cut left it.
+    pub fn open(mut flash: F) -> Self {
+        let pages = [scan(&mut flash, 0), scan(&mut flash, 1)];
+        Self { at: Cursor::new(&pages), flash }
     }
 
     /// The flash, back.
@@ -183,18 +248,9 @@ impl<F: Flash> Log<F> {
 
     /// The records, newest first.
     pub fn newest_first(&mut self) -> impl Iterator<Item = Record> + '_ {
-        let (page, next, older) = (self.current, self.next, self.older);
-        let blocks = (0..next).rev().map(move |b| (page, b)).chain((0..older).rev().map(move |b| (1 - page, b)));
         let flash = &mut self.flash;
-        // The unbroken run back from the newest: a gap means what an erase left behind.
-        let mut expect: Option<u16> = None;
-        blocks.filter_map(move |(page, block)| decode(&flash.read(page, block))).map_while(move |(record, seq)| {
-            if expect.is_some_and(|e| e != seq) {
-                return None;
-            }
-            expect = Some(seq.wrapping_sub(1));
-            Some(record)
-        })
+        let mut run = Run::default();
+        self.at.blocks().map(move |(page, block)| run.take(&flash.read(page, block))).map_while(Result::ok).flatten()
     }
 
     /// Append `record`, flipping to the other page first if this one is full.
@@ -203,17 +259,120 @@ impl<F: Flash> Log<F> {
     ///
     /// If the flash fails. The log is then as it was, or flipped without `record`.
     pub fn append(&mut self, record: Record) -> Result<(), F::Error> {
-        if self.next == F::BLOCKS {
-            let other = 1 - self.current;
-            self.flash.erase(other)?;
-            self.older = F::BLOCKS;
-            self.current = other;
-            self.next = 0;
+        let (page, block, flip) = self.at.place(F::BLOCKS);
+        if flip {
+            self.flash.erase(page)?;
         }
-        let block = self.next;
-        self.next += 1;
-        self.flash.write(self.current, block, &encode(record, self.seq))?;
-        self.seq = self.seq.wrapping_add(1);
+        if let Err(e) = self.flash.write(page, block, &encode(record, self.at.seq)) {
+            if flip {
+                self.at.flipped(F::BLOCKS);
+            } else {
+                self.at.next += 1;
+            }
+            return Err(e);
+        }
+        self.at.advance(F::BLOCKS, flip);
+        Ok(())
+    }
+}
+
+/// [`Flash`], with writes and erases that wait without blocking: for an application on an
+/// executor. Reads are as quick as the flash's (memory-mapped on the PIC32CK) but async too, as
+/// `embedded-storage-async`'s are.
+pub trait AsyncFlash {
+    type Error;
+    /// As [`Flash::BLOCKS`].
+    const BLOCKS: usize;
+    /// Block `block` of page `page` (0 or 1).
+    fn read(&mut self, page: usize, block: usize) -> impl Future<Output = [u8; BLOCK]>;
+    /// Write block `block` of page `page`, which is erased.
+    fn write(&mut self, page: usize, block: usize, data: &[u8; BLOCK]) -> impl Future<Output = Result<(), Self::Error>>;
+    /// Erase page `page`.
+    fn erase(&mut self, page: usize) -> impl Future<Output = Result<(), Self::Error>>;
+}
+
+impl<T: AsyncFlash> AsyncFlash for &mut T {
+    type Error = T::Error;
+    const BLOCKS: usize = T::BLOCKS;
+    fn read(&mut self, page: usize, block: usize) -> impl Future<Output = [u8; BLOCK]> {
+        T::read(self, page, block)
+    }
+    fn write(&mut self, page: usize, block: usize, data: &[u8; BLOCK]) -> impl Future<Output = Result<(), Self::Error>> {
+        T::write(self, page, block, data)
+    }
+    fn erase(&mut self, page: usize) -> impl Future<Output = Result<(), Self::Error>> {
+        T::erase(self, page)
+    }
+}
+
+async fn scan_async<F: AsyncFlash>(flash: &mut F, page: usize) -> Page {
+    let mut end = 0;
+    for b in (0..F::BLOCKS).rev() {
+        if flash.read(page, b).await != ERASED {
+            end = b + 1;
+            break;
+        }
+    }
+    let mut newest = None;
+    for b in (0..end).rev() {
+        if let Some((_, seq)) = decode(&flash.read(page, b).await) {
+            newest = Some(seq);
+            break;
+        }
+    }
+    Page { end, newest }
+}
+
+/// The boot log on `F`, async: [`Log`] for an application, the same log in the same flash.
+pub struct AsyncLog<F> {
+    flash: F,
+    at: Cursor,
+}
+
+impl<F: AsyncFlash> AsyncLog<F> {
+    /// The log on `flash`, as the last power cut left it.
+    pub async fn open(mut flash: F) -> Self {
+        let pages = [scan_async(&mut flash, 0).await, scan_async(&mut flash, 1).await];
+        Self { at: Cursor::new(&pages), flash }
+    }
+
+    /// The flash, back.
+    pub fn into_flash(self) -> F {
+        self.flash
+    }
+
+    /// The newest record that `want` picks, reading newest first.
+    pub async fn find(&mut self, mut want: impl FnMut(Record) -> bool) -> Option<Record> {
+        let mut run = Run::default();
+        for (page, block) in self.at.blocks() {
+            match run.take(&self.flash.read(page, block).await) {
+                Ok(Some(record)) if want(record) => return Some(record),
+                Ok(_) => {}
+                Err(()) => break,
+            }
+        }
+        None
+    }
+
+    /// Append `record`, flipping to the other page first if this one is full.
+    ///
+    /// # Errors
+    ///
+    /// As [`Log::append`].
+    pub async fn append(&mut self, record: Record) -> Result<(), F::Error> {
+        let (page, block, flip) = self.at.place(F::BLOCKS);
+        if flip {
+            self.flash.erase(page).await?;
+        }
+        if let Err(e) = self.flash.write(page, block, &encode(record, self.at.seq)).await {
+            if flip {
+                self.at.flipped(F::BLOCKS);
+            } else {
+                self.at.next += 1;
+            }
+            return Err(e);
+        }
+        self.at.advance(F::BLOCKS, flip);
         Ok(())
     }
 }
@@ -306,6 +465,44 @@ mod tests {
         }
     }
 
+    #[expect(clippy::unused_async_trait_impl, reason = "the async form of a flash that never waits")]
+    impl<const N: usize> AsyncFlash for Sim<N> {
+        type Error = PowerCut;
+        const BLOCKS: usize = N;
+
+        async fn read(&mut self, page: usize, block: usize) -> [u8; BLOCK] {
+            Flash::read(self, page, block)
+        }
+
+        async fn write(&mut self, page: usize, block: usize, data: &[u8; BLOCK]) -> Result<(), PowerCut> {
+            Flash::write(self, page, block, data)
+        }
+
+        async fn erase(&mut self, page: usize) -> Result<(), PowerCut> {
+            Flash::erase(self, page)
+        }
+    }
+
+    /// `future` run to its end: the simulated flash is never pending, so polling once does it.
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        let mut future = core::pin::pin!(future);
+        let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+        match future.as_mut().poll(&mut cx) {
+            core::task::Poll::Ready(value) => value,
+            core::task::Poll::Pending => panic!("the simulated flash never waits"),
+        }
+    }
+
+    /// The records an [`AsyncLog`] finds, newest first.
+    fn async_records<F: AsyncFlash>(log: &mut AsyncLog<F>) -> Vec<Record> {
+        let mut out = Vec::new();
+        block_on(log.find(|r| {
+            out.push(r);
+            false
+        }));
+        out
+    }
+
     fn records<F: Flash>(log: &mut Log<F>) -> Vec<Record> {
         log.newest_first().collect()
     }
@@ -370,7 +567,7 @@ mod tests {
         let mut expect = history.to_vec();
         expect.reverse();
         assert_eq!(records(&mut log), expect);
-        assert_eq!(log.current, 1);
+        assert_eq!(log.at.current, 1);
     }
 
     #[test]
@@ -390,7 +587,7 @@ mod tests {
         }
         flash.pages[1][0] = encode(Requested(id(9)), 0);
         let mut log = Log::open(flash);
-        assert_eq!((log.current, log.seq), (1, 1));
+        assert_eq!((log.at.current, log.at.seq), (1, 1));
         assert_eq!(records(&mut log), vec![Requested(id(9)), Confirmed(id(3)), Confirmed(id(2)), Confirmed(id(1)), Confirmed(id(0))]);
     }
 
@@ -437,6 +634,57 @@ mod tests {
             let read = records(&mut Log::open(&mut flash));
             let newest: Vec<Record> = appended.iter().rev().take(read.len()).copied().collect();
             assert_eq!(read, newest, "after {n}");
+        }
+    }
+
+    /// The blocking and async logs on one flash, taking turns over three flips: both read back
+    /// what both appended, in order.
+    #[test]
+    fn async_and_blocking_logs_are_one_log() {
+        let mut flash = Sim::<4>::new();
+        let mut appended: Vec<Record> = Vec::new();
+        for n in 0..14u8 {
+            let record = [Requested(id(n)), Started(id(n)), Confirmed(id(n))][usize::from(n % 3)];
+            if n % 2 == 0 {
+                Log::open(&mut flash).append(record).unwrap();
+            } else {
+                block_on(async { AsyncLog::open(&mut flash).await.append(record).await }).unwrap();
+            }
+            appended.push(record);
+            let blocking = records(&mut Log::open(&mut flash));
+            let mut log = block_on(AsyncLog::open(&mut flash));
+            let read = async_records(&mut log);
+            assert_eq!(read, blocking, "after {n}");
+            let newest: Vec<Record> = appended.iter().rev().take(read.len()).copied().collect();
+            assert_eq!(read, newest, "after {n}");
+        }
+    }
+
+    #[test]
+    fn async_find_stops_at_the_newest_match() {
+        let mut flash = Sim::<8>::new();
+        for r in [Confirmed(id(1)), Requested(id(2)), Started(id(2)), Confirmed(id(2))] {
+            Log::open(&mut flash).append(r).unwrap();
+        }
+        let mut log = block_on(AsyncLog::open(&mut flash));
+        assert_eq!(block_on(log.find(|r| r.id() == id(2))), Some(Confirmed(id(2))));
+        assert_eq!(block_on(log.find(|r| matches!(r, Requested(_)))), Some(Requested(id(2))));
+        assert_eq!(block_on(log.find(|r| r.id() == id(3))), None);
+    }
+
+    /// As [`a_power_cut_anywhere_in_a_flip`], through the async log.
+    #[test]
+    fn a_power_cut_anywhere_in_an_async_flip() {
+        let history = [Confirmed(id(1)), Requested(id(2)), Started(id(2)), Confirmed(id(2)), Requested(id(3)), Started(id(3)), Started(id(3)), Confirmed(id(3))];
+        let full = log_of(&history);
+        let before = records(&mut Log::open(full.clone()));
+        for cut in 0..2 {
+            let mut flash = full.clone().cut_after(cut);
+            let result = block_on(async { AsyncLog::open(&mut flash).await.append(Requested(id(4))).await });
+            assert_eq!(result, Err(PowerCut), "cut {cut}");
+            let after = async_records(&mut block_on(AsyncLog::open(flash.powered())));
+            assert_eq!(after[..], before[..after.len()], "cut {cut}");
+            assert!(after.len() >= 4, "cut {cut}");
         }
     }
 }

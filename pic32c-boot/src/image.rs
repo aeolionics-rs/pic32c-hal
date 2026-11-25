@@ -78,6 +78,37 @@ pub fn check(panel: &[u8]) -> Option<Header> {
     (Sha256::digest(&panel[..header.length])[..] == header.hash).then_some(header)
 }
 
+/// How much [`check_yielding`] hashes between yields: some 2 ms of software SHA-256 on a
+/// Cortex-M33 at 120 MHz.
+pub const CHUNK: usize = 4096;
+
+/// [`check`], for an application on an executor: the hash taken [`CHUNK`] bytes at a time with a
+/// yield between, so other tasks run meanwhile (the whole image takes some 300 ms on the
+/// PIC32CK, which has no hash engine outside the SG parts' HSM).
+pub async fn check_yielding(panel: &[u8]) -> Option<Header> {
+    let header = header(panel)?;
+    let mut hasher = Sha256::new();
+    for chunk in panel[..header.length].chunks(CHUNK) {
+        hasher.update(chunk);
+        yield_now().await;
+    }
+    (hasher.finalize()[..] == header.hash).then_some(header)
+}
+
+/// Let the executor run other tasks once: pending the first time it's polled, ready the next.
+fn yield_now() -> impl Future<Output = ()> {
+    let mut yielded = false;
+    core::future::poll_fn(move |cx| {
+        if yielded {
+            core::task::Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            core::task::Poll::Pending
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;
@@ -149,5 +180,41 @@ mod tests {
     fn an_empty_panel_has_no_image() {
         assert_eq!(header(&vec![0xFF; 4096]), None);
         assert_eq!(header(&[0; 16]), None);
+    }
+
+    /// `future` run to its end, polled until ready: each poll counted.
+    fn run<T>(future: impl Future<Output = T>) -> (T, usize) {
+        let mut future = core::pin::pin!(future);
+        let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+        let mut polls = 0;
+        loop {
+            polls += 1;
+            if let core::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
+                return (value, polls);
+            }
+        }
+    }
+
+    #[test]
+    fn the_yielding_check_agrees_and_yields() {
+        let mut p = seal(&program(3000), 2);
+        p.resize(16384, 0xFF);
+        let (header, polls) = run(check_yielding(&p));
+        assert_eq!(header, check(&p));
+        assert!(header.is_some());
+        // 3008 bytes: one chunk, one yield.
+        assert_eq!(polls, 2);
+        let big = {
+            let mut p = seal(&program(10_000), 2);
+            p.resize(16384, 0xFF);
+            p
+        };
+        let (header, polls) = run(check_yielding(&big));
+        assert_eq!(header, check(&big));
+        // 10,016 bytes: three chunks, three yields.
+        assert_eq!(polls, 4);
+        let mut bad = big.clone();
+        bad[9000] ^= 1;
+        assert_eq!(run(check_yielding(&bad)).0, None);
     }
 }
