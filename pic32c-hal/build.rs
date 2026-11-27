@@ -156,4 +156,29 @@ fn main() {
     if let Some(timer) = timer {
         println!("cargo::rustc-cfg=time_driver=\"{timer}\"");
     }
+    rng(cfgs, feature("embassy-crypto-rng"));
+}
+
+/// What `embassy-crypto-rng` hands out, chosen by the application through `PIC32C_HAL_RNG`: an
+/// environment variable rather than a feature, so that no dependency can change it for the program.
+fn rng(cfgs: &[&str], enabled: bool) {
+    const VAR: &str = "PIC32C_HAL_RNG";
+    const CONSTRUCTIONS: &[&str] = &["drbg", "raw"];
+    println!("cargo::rerun-if-env-changed={VAR}");
+    let values: Vec<String> = CONSTRUCTIONS.iter().map(|c| format!("\"{c}\"")).collect();
+    println!("cargo::rustc-check-cfg=cfg(rng_construction, values({}))", values.join(", "));
+    let chosen = env::var(VAR).ok();
+    if !enabled {
+        if let Some(value) = chosen {
+            println!("cargo::warning=pic32c-hal: {VAR}={value} does nothing without the embassy-crypto-rng feature");
+        }
+        return;
+    }
+    assert!(cfgs.contains(&"trng"), "feature embassy-crypto-rng: this chip has no TRNG");
+    let construction = chosen.as_deref().unwrap_or("drbg");
+    assert!(CONSTRUCTIONS.contains(&construction), "{VAR}={construction}: expected one of {}", CONSTRUCTIONS.join(", "));
+    if construction == "raw" {
+        println!("cargo::warning=pic32c-hal: {VAR}=raw: the embassy-crypto RNG returns unconditioned TRNG words (health-checked)");
+    }
+    println!("cargo::rustc-cfg=rng_construction=\"{construction}\"");
 }

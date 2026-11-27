@@ -19,7 +19,9 @@ versions of:
 * can-common, support code shared with CAN drivers in our other HALs
 * embassy, at a revision of main, for embassy-net on its new xarxa stack
   ahead of a release (and embassy-usb-driver 0.3); embassy main needs Rust
-  1.100
+  1.100. A daily CI run (`embassy-main.yml`) builds everything against
+  embassy main's head and the xarxa its embassy-net names
+  (`tools/embassy-main.py`), and opens an issue when that breaks
 
 The plan is to publish to crates.io once these have stabilized.
 
@@ -33,7 +35,7 @@ The plan is to publish to crates.io once these have stabilized.
   with feature `pic32ck2051sg01144` or `pic32ck2051gc01144`, each on its
   own PAC; `rt` brings in the vector table. Host
   tests with `cargo test -p pic32c-hal --features
-  pic32ck2051sg01144,can-hal,time-driver,usb,usbhs`.
+  pic32ck2051sg01144,can-hal,eth,time-driver,usb,usbhs`.
   - `adc`: the 12-bit SAR ADC, one read at a time in the core's
     software-controlled mode (its channel and trigger registers are fixed
     while it's enabled), embassy-stm32's shape: `Adc::new_blocking` /
@@ -85,7 +87,9 @@ The plan is to publish to crates.io once these have stabilized.
     `xarxa-driver` driver (embassy-net's, on xarxa), RMII to the board's
     KSZ8091, with PHY discovery and link polling over MDIO; with
     embassy-net it gets DHCP and SLAAC addresses and answers ping, IPv4 and
-    IPv6.
+    IPv6. `Pins` takes any pin the chip offers for each RMII signal (a pin
+    trait per signal, generated as the SERCOM pads are; MDC and MDIO have
+    several), checked at compile time.
   - `exti` (feature `exti`): `ExtiInput`, waiting on a pin's levels and
     edges through the EIC (embedded-hal-async `Wait`), the pin's type naming
     its line (`p.EXTINT0` to `p.EXTINT15`); with `rt` the HAL owns the 16
@@ -109,7 +113,7 @@ The plan is to publish to crates.io once these have stabilized.
     the match).
   - `sercom`: what the SERCOM drivers share: `Pad<T, PAD, IOSET>`, each
     pin's pad, function and I/O set, generated from the ATDF by
-    `tools/pin_tables.py` (CAN's pins likewise). A driver takes all its
+    `tools/pin_tables.py` (CAN's pins and Ethernet's likewise). A driver takes all its
     pins in one I/O set, as the datasheet requires, and the compiler infers
     it and refuses a mix.
   - `spi`: a SERCOM as an SPI host (8-bit, modes 0-3, MSB or LSB first,
@@ -144,6 +148,25 @@ The plan is to publish to crates.io once these have stabilized.
   - `wdt`: the watchdog (normal mode, early warning) and the reset cause
     (RSTC.RCAUSE).
   - `uid`: the chip's unique ID.
+  - `trng`: the true random number generator, a 32-bit word every 84 bus
+    cycles, which the datasheet gives no health tests, conditioning or
+    entropy rating. Either a driver of its own (`Trng`, blocking or on its
+    interrupt, with the `rand_core` 0.6, 0.9 and 0.10 traits; the
+    hardware's words as they come), or, with feature `embassy-crypto-rng`,
+    `embassy-crypto`'s global random number driver (`embassy_crypto::rng_fill_bytes`,
+    and the keys and nonces embassy-crypto draws; `trng::Rng` for crates
+    that take `rand_core`), when the TRNG leaves `Peripherals`. That driver
+    health-checks every word (NIST SP 800-90B: a start-up test over 1024
+    words, then the repetition count and adaptive proportion tests),
+    restarts the TRNG once on a failure and panics on a second. What it
+    hands out is the application's choice, at build time, through the
+    `PIC32C_HAL_RNG` environment variable (an environment variable, not a
+    feature, so that no dependency can change it): `drbg`, the default, an
+    `HMAC_DRBG` with SHA-256 (SP 800-90A) instantiated per call from fresh
+    TRNG words and the unique ID; or `raw`, the checked words themselves,
+    which the build warns about. Set it in the application's
+    `.cargo/config.toml` under `[env]`. embassy-crypto is on embassy main
+    only (crates.io has a placeholder), so the workspace patches it in.
   - `time` (feature `time-driver`): an `embassy-time` driver on TCC0, one of
     the 32-bit TCCs, extended to 64 bits; `init` starts it from the
     generator `Config.time` names (4 by default), and TCC0 leaves the
@@ -483,7 +506,8 @@ The plan is to publish to crates.io once these have stabilized.
   Build one with
   `cargo build --release -p pic32ck-curiosity-ultra --target
   thumbv8m.main-none-eabihf --features sg01 --example blink` (or `gc01`;
-  `eth_https` and `crypto_bench` also need `--features tls`); the ELF is
+  `eth_https` and `crypto_bench` also need `--features tls`, and `crypto_rng`
+  `--features crypto-rng` without `tls`, whose code needs a heap); the ELF is
   in `target/thumbv8m.main-none-eabihf/release/examples/`. Programs: `blink`,
   `clocks`, `timer` (build with `TIMER_START=7FB3B4C0` or `FFB3B4C0` to cross
   2^31 or 2^32 within seconds), `flash` (scratch pages at the top of each
@@ -492,7 +516,7 @@ The plan is to publish to crates.io once these have stabilized.
   through a panel-2 erase), `watchdog`, `gpio`
   (pulls, outputs, open drain, the buttons), `exti` (edges and levels on
   PA10 made by flipping its pull, SW0's levels, a press), `nmi` (SW1),
-  `eth_ping` (embassy-net on the RJ45: DHCP, SLAAC, DNS, ping), `i2c` (the target I2C bus, SERCOM4 on PB09/PB10: a scan, the AT24MAC402's EUI-48 and serial number, a page of its EEPROM written and restored, two reads in a row, then on interrupts at 100 kHz, 400 kHz and 1 MHz; then each sensor it finds that the bench knows, by public drivers through `I2c`'s embedded-hal traits (`sht4x`, async; `bme280`, blocking), an SHT4x, BMP280 or BME280 such as a MikroElektronika TempHum 15 or Weather Click in the mikroBUS socket: its serial number or chip ID and a measurement within reason), `spi` (SERCOM2 on the empty mikroBUS socket's pins, in loopback: rates to 24 MHz, the four modes, LSB first, unequal lengths and in place, blocking and by DMA, then full duplex with MISO on PC17), `trng` (the TRNG's rate and sanity statistics over 2 Mbit), `eth_https` (feature `tls`: `pic32ck-<MAC's last 3 bytes>.local` by mDNS with `_https._tcp`, the board crate's `mdns`; its clock from SNTP, the board crate's `sntp`: the DHCP gateway, then `pool.ntp.org`, clockless if neither answers; `eth_http`'s routes over TLS 1.3 with rustls and RustCrypto, a bench-only self-signed certificate in `certs/`; `tools/host/eth_https_test.py` drives it; feature `tls` builds C and assembly, so `arm-none-eabi-gcc` must be on the PATH), `crypto_bench` (feature `tls`: each handshake operation timed, RustCrypto against the assembly crates), `eth_http` (a TCP echo on port 7 and
+  `eth_ping` (embassy-net on the RJ45: DHCP, SLAAC, DNS, ping), `i2c` (the target I2C bus, SERCOM4 on PB09/PB10: a scan, the AT24MAC402's EUI-48 and serial number, a page of its EEPROM written and restored, two reads in a row, then on interrupts at 100 kHz, 400 kHz and 1 MHz; then each sensor it finds that the bench knows, by public drivers through `I2c`'s embedded-hal traits (`sht4x`, async; `bme280`, blocking), an SHT4x, BMP280 or BME280 such as a MikroElektronika TempHum 15 or Weather Click in the mikroBUS socket: its serial number or chip ID and a measurement within reason), `spi` (SERCOM2 on the empty mikroBUS socket's pins, in loopback: rates to 24 MHz, the four modes, LSB first, unequal lengths and in place, blocking and by DMA, then full duplex with MISO on PC17), `trng` (the TRNG's rate and sanity statistics over 2 Mbit; built without `crypto-rng`), `crypto_rng` (feature `crypto-rng`: the TRNG as embassy-crypto's driver, in the construction `PIC32C_HAL_RNG` chose: the first call with its start-up test, the time per call for 32 B, 64 B and 1 KiB, the same statistics over 2 Mbit of its output, and the driver's counters), `eth_https` (feature `tls`: `pic32ck-<MAC's last 3 bytes>.local` by mDNS with `_https._tcp`, the board crate's `mdns`; its clock from SNTP, the board crate's `sntp`: the DHCP gateway, then `pool.ntp.org`, clockless if neither answers; `eth_http`'s routes over TLS 1.3 with rustls and RustCrypto, a bench-only self-signed certificate in `certs/`; `tools/host/eth_https_test.py` drives it; feature `tls` builds C and assembly, so `arm-none-eabi-gcc` must be on the PATH), `crypto_bench` (feature `tls`: each handshake operation timed, RustCrypto against the assembly crates), `eth_http` (a TCP echo on port 7 and
   picoserve on port 80; `tools/host/eth_http_test.py` drives it), `adc` (the bandgap's spread and AVDD from it, the temperature sensor reported, 10 and 8 bits on the 12-bit scale, read times, the Arduino header's A0-A5 shown as they float, async reads; `ADC_JUMPERS=1` with A1/PA09 jumpered to 3V3 and A2/PA10 to GND checks 4095 and 0), `moff` (the die temperature sensor's offset, erratum 2.18.1's Moff, against the air's temperature from an SHT4x, which it needs: a MikroElektronika TempHum 15 Click in the mikroBUS socket; about 228 counts on the GC01, steady), `w5500` (a WIZnet W5500 on a MikroElektronika ETH WIZ Click in the mikroBUS socket, CS PD15, RST PD21, INT PD18: a hardware reset, VERSIONR, a software reset, registers, the PHY's link, and 2 KiB buffer round trips at 1-20 MHz and mode 3 with SCK slew-limited; the click shares PC15-PC17 with EXT2's UART, so unplug the UART link meanwhile), `rtc` (the crystal started or found running, its rate against the CPU's crystal over 10 s, the calendar through 29 February and a new year, an alarm 3 s ahead, and the time kept through a software reset), `uart_flow` (RTS/CTS against `uart_peer`'s slow-draining echo on a second board's EXT2: CTS holding an 8 KiB burst and RTS holding the echo through 200 ms unread, on the DMA `Uart` and on a `BufferedUart` with 256-byte rings, each with a control run without flow control that loses bytes), `uart_link` (SERCOM2 on EXT2: TX PC15 pin 16, RX PC16 pin 18, RTS PC17 pin 17, CTS PC18 pin 6, flow control on; against `uart_peer` on another board, or another board running `uart_link` too: 1 KiB blocks at 1 Mbaud, 20 on a `BufferedUart` then 20 on a `Uart` with DMA; `UART_LINK_BAUD`, and `UART_LINK_FIFO=0` with the FIFO off), `uart_lines` (300 sentences of 20-82 characters read back by `fill_buf`/`consume` through a 128-byte ring, `available`, `set_baudrate` to 115200 and back against `uart_peer`'s 1 Mbaud echo, the blocking embedded-io traits), `uart_ring` (a 512-byte `RingBufferedUartRx` against `uart_peer`'s echo: 16 KiB in order through some 32 wraps, the wake on one byte, and an overrun reported then recovered; `UART_RING_FIFO=0` with the FIFO off), `uart_peer` (the far end for `uart_flow`, `uart_ring` and `uart_lines` on a second CK board's EXT2, crossed: a 1 Mbaud echo with RTS/CTS that takes up to 512 bytes a round, gathered for 20 ms, then pauses 10 ms, about 50 KB/s, so its 2 KiB receive ring fills and its RTS holds the far end; `UART_PEER_BAUD` sets the rate), `uart_echo` (async echo on the
   VCOM; `UART_BAUD` sets the rate and `UART_FIFO=0` turns the FIFO off,
   and `tools/host/uart_echo_test.py` on the host drives it) and `usb_echo` (CDC-ACM on J203), `usbhs_echo` (CDC-ACM in 512-byte packets on J202 at high speed, a zero-length packet after a full one when nothing follows, the bus's events logged, remote wakeup after 5 s suspended; `USBHS_FULL_SPEED=1` for full speed and 64-byte packets, `USBHS_DMA=1` for the DMA; `tools/host/cdc_hs_test.py` drives it: every length from 1 to 1,100 bytes, then 64 MiB streamed and checked at 13.8-14.3 MB/s each way on the SG01 against macOS, 15.9 against Linux (13.6 with the DMA; 0.53 at full speed), against `usb_echo`'s ~550 kB/s both ways on the full-speed controller), `usbhs_ncm` (CDC-NCM in 512-byte packets under embassy-net, static link-local addresses, TCP echo/discard/chargen on ports 7/9/19; `tools/host/tcp_bench.py` drives it: on the GC01, 3.6 MB/s echo each way, 5.3 MB/s to the board, 6.4 MB/s from it, against 3.1, 4.8 and 5.6 on embassy-net 0.9's smoltcp, whose 8 KiB windows were the limit), and for CAN0 `can_loopback` (internal and external

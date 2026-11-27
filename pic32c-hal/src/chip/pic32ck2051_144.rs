@@ -387,6 +387,8 @@ embassy_hal_internal::peripherals!(
     TCC7,
     RTC,
     ADC,
+    // `embassy-crypto-rng` makes the TRNG embassy-crypto's, and only its.
+    #[cfg(not(feature = "embassy-crypto-rng"))]
     TRNG,
     USB,
     USBHS,
@@ -662,6 +664,22 @@ crate::can::instance::impl_can! {
 crate::can::instance::impl_can_pins! {
     CAN0: rx PB09 H ioset 1, tx PB08 H ioset 1, rx PC03 H ioset 2, tx PC02 H ioset 2, rx PB17 H ioset 3, tx PB16 H ioset 3, rx PB22 H ioset 4, tx PB21 H ioset 4, rx PD19 H ioset 5, tx PD18 H ioset 5;
     CAN1: rx PB01 H ioset 1, tx PB00 H ioset 1, rx PC07 H ioset 2, tx PC06 H ioset 2, rx PB24 H ioset 3, tx PB23 H ioset 3, rx PD21 H ioset 4, tx PD20 H ioset 4;
+}
+
+// The Ethernet MAC's RMII pins, generated as the SERCOM pads are: each
+// signal's pins and their function. No I/O sets.
+#[cfg(feature = "eth")]
+crate::eth::impl_rmii_pins! {
+    RefClkPin: PC00 L;
+    MdcPin: PA11 L, PB10 L, PC03 L, PD07 L;
+    MdioPin: PA12 L, PC02 L, PC04 L, PC21 L, PD06 L;
+    CrsDvPin: PC10 L;
+    RxErPin: PC09 L;
+    Rxd0Pin: PC07 L;
+    Rxd1Pin: PC06 L;
+    TxEnPin: PC11 L;
+    Txd0Pin: PC12 L;
+    Txd1Pin: PC13 L;
 }
 
 #[cfg(feature = "exti")]

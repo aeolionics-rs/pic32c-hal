@@ -33,6 +33,9 @@ codegen-units = 1
 # a crates.io embassy-time-driver beside a git one is two crates with the
 # same `links`, which Cargo refuses.
 [patch.crates-io]
+# Not on crates.io yet (only a 0.0.0 placeholder): the patch is what provides
+# the 0.1.0 pic32c-hal's `embassy-crypto-rng` names.
+embassy-crypto = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
 embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
 embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
 embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }

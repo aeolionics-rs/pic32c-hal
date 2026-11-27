@@ -589,6 +589,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "embassy-crypto"
+version = "0.1.0"
+source = "git+https://github.com/embassy-rs/embassy?rev=ce40ea9c735565be8ddb78d52f7f8fc3177501ef#ce40ea9c735565be8ddb78d52f7f8fc3177501ef"
+dependencies = [
+ "unitrait",
+]
+
+[[package]]
 name = "embassy-embedded-hal"
 version = "0.6.0"
 source = "git+https://github.com/embassy-rs/embassy?rev=ce40ea9c735565be8ddb78d52f7f8fc3177501ef#ce40ea9c735565be8ddb78d52f7f8fc3177501ef"
@@ -1263,6 +1271,7 @@ dependencies = [
  "cortex-m-rt",
  "critical-section",
  "defmt",
+ "embassy-crypto",
  "embassy-embedded-hal",
  "embassy-futures",
  "embassy-hal-internal",
@@ -1277,6 +1286,7 @@ dependencies = [
  "embedded-io-async",
  "embedded-storage",
  "embedded-storage-async",
+ "hmac",
  "pic32ck-gc01-pac",
  "pic32ck-sg01-pac",
  "pic32cm-gv00-pac",
@@ -1286,6 +1296,7 @@ dependencies = [
  "rand_core 0.10.1",
  "rand_core 0.6.4",
  "rand_core 0.9.5",
+ "sha2",
  "xarxa-driver",
 ]
 
@@ -1312,6 +1323,7 @@ dependencies = [
  "edge-mdns",
  "edge-nal",
  "edge-nal-embassy",
+ "embassy-crypto",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures",

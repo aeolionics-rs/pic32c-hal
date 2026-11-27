@@ -3,13 +3,21 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 
 # The check on every push to main and every pull request. It builds against
-# the git dependencies as pushed (no local patch).
+# the git dependencies as pushed (no local patch). The daily run against
+# embassy main (embassy-main.yml) calls it with `embassy-rev`, and each job then
+# moves the embassy and xarxa pins first (tools/embassy-main.py).
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+  workflow_call:
+    inputs:
+      embassy-rev:
+        description: The embassy revision to build against instead of the pinned one
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -24,8 +32,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
-      - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
+      # With `eth` too, for its doc tests (the pins the compiler takes and
+      # refuses).
+      - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,eth,time-driver,usb,usbhs
+      # The TRNG as embassy-crypto's driver (its DRBG and health tests), in
+      # both of the constructions an application can choose.
+      - run: cargo clippy -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --all-targets -- -D warnings
+      - run: cargo test -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --lib
+      - run: cargo test -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --lib
+        env:
+          PIC32C_HAL_RNG: raw
       # The CM chips' own drivers (their DMAC, flash controllers, watchdog,
       # the GV00's clocks).
       - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
@@ -61,7 +82,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,${{ matrix.features }} -- -D warnings
+      # The PIC32CK's TRNG as embassy-crypto's driver, in both constructions.
+      - if: startsWith(matrix.chip, 'pic32ck')
+        run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,embassy-crypto-rng -- -D warnings
+      - if: startsWith(matrix.chip, 'pic32ck')
+        run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,embassy-crypto-rng -- -D warnings
+        env:
+          PIC32C_HAL_RNG: raw
 
   # The board crates and their bench programs. The TLS programs build C and
   # assembly, so they need Arm's GCC.
@@ -75,9 +107,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} --examples -- -D warnings
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},tls --example eth_https --example crypto_bench -- -D warnings
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},crypto-rng --example crypto_rng -- -D warnings
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},crypto-rng --example crypto_rng -- -D warnings
+        env:
+          PIC32C_HAL_RNG: raw
       # pic32c-boot's reference bootloader for the board.
       - run: cargo clippy --release -p pic32ck-boot --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} -- -D warnings
 
@@ -86,6 +126,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy --release -p pic32cm-pl10-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
 
   gv-board:
@@ -93,6 +137,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy --release -p pic32cm-gv-curiosity-nano --target thumbv6m-none-eabi --examples -- -D warnings
 
   sg00-board:
@@ -100,6 +148,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy --release -p pic32cm-sg00-curiosity-pro --target thumbv8m.base-none-eabi --examples -- -D warnings
 
   checks:
@@ -107,6 +159,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo fmt --all --check
       - uses: taiki-e/install-action@v2
         with:

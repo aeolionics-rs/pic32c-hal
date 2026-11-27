@@ -25,6 +25,12 @@ test = false
 bench = false
 
 [[example]]
+name = "crypto_rng"
+required-features = ["crypto-rng"]
+test = false
+bench = false
+
+[[example]]
 name = "crypto_bench"
 required-features = ["tls"]
 test = false
@@ -201,10 +207,14 @@ bench = false
 # PIC32CK GC01 Curiosity Ultra.
 sg01 = ["pic32c-hal/pic32ck2051sg01144"]
 gc01 = ["pic32c-hal/pic32ck2051gc01144"]
+# crypto_rng, and under `tls`: the TRNG as embassy-crypto's random number
+# driver (pic32c-hal's `embassy-crypto-rng`), which takes it out of
+# `Peripherals`, so build the `trng` example without it.
+crypto-rng = ["pic32c-hal/embassy-crypto-rng", "dep:embassy-crypto"]
 # eth_https and crypto_bench: the TLS stack below (`examples/common/tls.rs`,
 # rustls on embassy-net). It needs a global allocator, so it's off for the
-# other examples.
-tls = ["dep:embedded-alloc", "dep:getrandom", "dep:p256", "dep:p256-cortex-m4", "dep:pkcs8", "dep:primeorder", "dep:rand-core-06", "dep:rustls", "dep:rustls-rustcrypto", "dep:salty", "dep:sec1", "dep:sha2", "dep:x25519-dalek"]
+# other examples. Its randomness is embassy-crypto's (`crypto-rng`).
+tls = ["crypto-rng", "dep:embedded-alloc", "dep:getrandom", "dep:p256", "dep:p256-cortex-m4", "dep:pkcs8", "dep:primeorder", "dep:rand-core-06", "dep:rustls", "dep:rustls-rustcrypto", "dep:salty", "dep:sec1", "dep:sha2", "dep:x25519-dalek"]
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
@@ -215,9 +225,12 @@ pic32c-hal = { path = "../../pic32c-hal", features = ["rt", "time-driver", "unst
 # optional dev-dependencies, and these need a global allocator (and
 # arm-none-eabi-gcc), so the other examples go without.
 embedded-alloc = { version = "0.7.0", default-features = false, features = ["tlsf"], optional = true }
+# The TRNG, as embassy-crypto's random number driver, for the examples'
+# getrandom backend.
+embassy-crypto = { version = "0.1.0", optional = true }
 # TLS (the eth_https spike): rustls's unbuffered API with RustCrypto. Its
-# getrandom calls go to the TRNG through the custom backend
-# (`.cargo/config.toml` sets `getrandom_backend="custom"`).
+# getrandom calls go to embassy-crypto's random number driver through the
+# custom backend (`.cargo/config.toml` sets `getrandom_backend="custom"`).
 getrandom = { version = "0.4.3", default-features = false, features = ["sys_rng"], optional = true }
 rustls = { version = "0.23.46", default-features = false, optional = true }
 rustls-rustcrypto = { version = "0.1.0-pre.0", default-features = false, features = ["alloc", "zeroize"], optional = true }
