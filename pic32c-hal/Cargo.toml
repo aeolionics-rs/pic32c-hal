@@ -99,7 +99,7 @@ rand-core-09 = { package = "rand_core", version = "0.9.5", default-features = fa
 rand-core-010 = { package = "rand_core", version = "0.10.1", default-features = false }
 # The driver interface of xarxa, the stack under embassy-net on embassy main:
 # the revision embassy-net names, so the two are one crate.
-xarxa-driver = { version = "0.1.0", git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", features = ["async"], optional = true }
+xarxa-driver = { version = "0.1.0", git = "https://github.com/embassy-rs/xarxa", rev = "b13f21360587d4e021c9798a49e7a0d36468f693", features = ["async"], optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.2.0", features = ["std"] }

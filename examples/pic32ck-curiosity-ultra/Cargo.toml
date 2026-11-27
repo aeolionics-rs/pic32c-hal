@@ -255,7 +255,7 @@ embassy-net = { version = "0.9.1", features = ["dhcpv4", "dns", "icmp-ping-reply
 # interface, 2 interfaces). usbhs_ncm listens on three ports; eth_http
 # serves three connections at once (two HTTP, one echo); eth_https's UDP
 # sockets are SNTP's, mDNS's and the DNS client's.
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8f6f33b131deb9ff3290e0e01079537e1ed7b2ad", default-features = false, features = ["tcp-socket-count-4", "tcp-listener-count-3", "udp-socket-count-4"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "b13f21360587d4e021c9798a49e7a0d36468f693", default-features = false, features = ["tcp-socket-count-4", "tcp-listener-count-3", "udp-socket-count-4"] }
 static_cell = "2.1.1"
 picoserve = { version = "0.21.0", default-features = false, features = ["embassy"] }
 heapless = "0.9"

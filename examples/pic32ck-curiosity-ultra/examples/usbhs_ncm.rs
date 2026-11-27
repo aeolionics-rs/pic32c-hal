@@ -39,7 +39,7 @@ use embedded_io_async::Write as _;
 use panic_halt as _;
 use pic32c_hal::{bind_interrupts, uid, usbhs};
 use pic32ck_curiosity_ultra::uart::Uart;
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -59,7 +59,7 @@ static NET_STATE: StaticCell<cdc_ncm::embassy_net::State<4, 4>> = StaticCell::ne
 static NET_DEVICE: StaticCell<NetDevice> = StaticCell::new();
 static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
 /// The stack's packets, the class's queues' among them (four each way).
-static POOL: StaticPool<MTU, 16> = StaticPool::new();
+static POOL: ConstStaticCell<StaticPool<MTU, 16>> = ConstStaticCell::new(StaticPool::new());
 
 static ECHOED: AtomicUsize = AtomicUsize::new(0);
 static DISCARDED: AtomicUsize = AtomicUsize::new(0);
@@ -142,7 +142,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(ncm_task(ncm_runner).unwrap());
 
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
     let iface = stack.add_iface_borrowed(NET_DEVICE.init(device)).unwrap();
     iface.add_ip_addr(IpCidr::V6(Ipv6Cidr::new(address, 64))).unwrap();
     iface.add_ip_addr(IpCidr::V4(Ipv4Cidr::new(address_v4, 16))).unwrap();

@@ -41,7 +41,7 @@ use pic32ck_curiosity_ultra::clocks;
 use pic32ck_curiosity_ultra::uart::Uart;
 use picoserve::response::IntoResponse;
 use picoserve::routing::{get, get_service};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -55,7 +55,7 @@ static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
 /// The stack's packets: the MAC's receive ring holds eight, its transmit
 /// ring up to four, and the rest are the stack's. (TCP's data is in the
 /// sockets' own buffers.)
-static POOL: StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }> = StaticPool::new();
+static POOL: ConstStaticCell<StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }>> = ConstStaticCell::new(StaticPool::new());
 static CONFIG: picoserve::Config = picoserve::Config::new(picoserve::Timeouts {
     start_read_request: Duration::from_secs(5),
     persistent_start_read_request: Duration::from_secs(2),
@@ -171,7 +171,7 @@ async fn main(spawner: Spawner) {
         }
     };
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
     let iface = stack.add_iface_borrowed(ETHERNET.init(ethernet)).unwrap();
     iface.set_dhcpv4(Some(DhcpConfig::default())).unwrap();
     iface.set_slaac(Some(SlaacConfig::default())).unwrap();

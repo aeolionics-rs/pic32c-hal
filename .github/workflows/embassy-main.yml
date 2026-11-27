@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Aeolionics, LLC
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+# Every day, the whole CI against embassy main's head (and the xarxa revision
+# its embassy-net names) instead of the pinned revisions, so a change there
+# that breaks us shows up the day after, not at their next release. A failure
+# opens an issue (or comments on the open one when embassy has moved since);
+# a pass closes it.
+name: Embassy main
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # One revision for every job, so main moving mid-run doesn't split them.
+  revision:
+    runs-on: ubuntu-latest
+    outputs:
+      rev: ${{ steps.rev.outputs.rev }}
+    steps:
+      - id: rev
+        run: echo "rev=$(git ls-remote https://github.com/embassy-rs/embassy refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+
+  ci:
+    needs: revision
+    uses: ./.github/workflows/ci.yml
+    with:
+      embassy-rev: ${{ needs.revision.outputs.rev }}
+
+  report:
+    needs: [revision, ci]
+    if: always() && needs.ci.result != 'cancelled'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RESULT: ${{ needs.ci.result }}
+      REV: ${{ needs.revision.outputs.rev }}
+      RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      TITLE: Daily build against embassy main fails
+    steps:
+      - run: |
+          issue=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)
+          note="embassy main ${REV:0:9} (https://github.com/embassy-rs/embassy/commit/$REV): $RUN"
+          if [ "$RESULT" = success ]; then
+            [ -z "$issue" ] || gh issue close "$issue" --comment "Passes again against $note"
+          elif [ -z "$issue" ]; then
+            gh issue create --title "$TITLE" --body "Fails against $note"
+          elif ! gh issue view "$issue" --comments --json body,comments --jq '.body, .comments[].body' | grep -q "$REV"; then
+            gh issue comment "$issue" --body "Still fails, against $note"
+          fi
