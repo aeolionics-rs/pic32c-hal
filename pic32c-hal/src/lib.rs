@@ -46,10 +46,12 @@
 //! - [`usbhs`] (feature `usbhs`): an embassy-usb driver for the high-speed
 //!   USB controller.
 //!
-//! Choose the chip with one feature: `pic32ck2051sg01144` or
-//! `pic32ck2051gc01144` (the GC's PAC lacks the Secure views of PORT and the
-//! EIC, and the HSM), `pic32cm5112sg00100`, `pic32cm6408pl10048` or
-//! `pic32cm3204gv00064`, each with its own PAC. Feature `rt`
+//! Choose the chip with one feature, the device's name: a PIC32CK as
+//! `pic32ck2051sg01144`, for the PIC32CK1025 or PIC32CK2051, SG01 or GC01
+//! (the GC's PAC lacks the Secure views of PORT and the EIC, and the HSM),
+//! in 64, 100 or 144 pins, which decides the pins there are;
+//! `pic32cm5112sg00100`, `pic32cm6408pl10048` or `pic32cm3204gv00064`.
+//! Each family has its own PAC. Feature `rt`
 //! brings in the PAC's vector table and lets the HAL define the time
 //! driver's handlers. [`init`] sets the [`clocks`] up from its [`Config`],
 //! and the drivers' rates follow from it.
@@ -61,18 +63,12 @@
 
 #![cfg_attr(not(test), no_std)]
 
-#[cfg(not(any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100", feature = "pic32cm3204gv00064")))]
-compile_error!("choose the chip: feature `pic32ck2051sg01144`, `pic32ck2051gc01144`, `pic32cm6408pl10048`, `pic32cm5112sg00100` or `pic32cm3204gv00064`");
-#[cfg(any(
-    all(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144"),
-    all(feature = "pic32ck2051sg01144", feature = "pic32cm6408pl10048"),
-    all(feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048"),
-    all(feature = "pic32cm5112sg00100", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048")),
-    all(feature = "pic32cm3204gv00064", any(feature = "pic32ck2051sg01144", feature = "pic32ck2051gc01144", feature = "pic32cm6408pl10048", feature = "pic32cm5112sg00100"))
-))]
-compile_error!("choose one chip");
+// build.rs turns the chip feature into its family's cfg, and stops the
+// build for two.
+#[cfg(not(any(pic32ck, pic32cm_pl, pic32cm_sg, pic32cm_gv)))]
+compile_error!("choose the chip: one device feature, such as `pic32ck2051sg01144` or `pic32cm6408pl10048` (pic32c-hal's Cargo.toml lists them)");
 
-#[cfg_attr(pic32ck, path = "chip/pic32ck2051_144.rs")]
+#[cfg_attr(pic32ck, path = "chip/pic32ck.rs")]
 #[cfg_attr(pic32cm_pl, path = "chip/pic32cm6408pl10048.rs")]
 #[cfg_attr(pic32cm_sg, path = "chip/pic32cm5112sg00100.rs")]
 #[cfg_attr(pic32cm_gv, path = "chip/pic32cm3204gv00064.rs")]
