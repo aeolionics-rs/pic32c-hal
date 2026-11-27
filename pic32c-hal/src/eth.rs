@@ -8,8 +8,9 @@
 //!
 //! [`Ethernet::new`] takes the `ETH` peripheral, a
 //! [`bind_interrupts!`](crate::bind_interrupts) type binding its vector
-//! (`ETH`) to [`InterruptHandler`], the RMII pins, the PHY's reset pin and a
-//! [`PacketQueue`] for the DMA's descriptors. The PHY's 50 MHz reference
+//! (`ETH`) to [`InterruptHandler`], the RMII pins ([`Pins`]: any the chip
+//! offers for each signal, checked at compile time), the PHY's reset pin and
+//! a [`PacketQueue`] for the DMA's descriptors. The PHY's 50 MHz reference
 //! clock comes in on `REF_CLK` (PC00); the MAC also needs its two generic
 //! clock channels fed, from the generator `new` is given. It finds the PHY's
 //! address by scanning MDIO, restarts autonegotiation, and polls the link
@@ -37,7 +38,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
 use xarxa_driver::{Capabilities, DriverBuf, HardwareAddress, LinkState, NotSupported, RxWanted};
 
-use crate::gpio::{Function, Level, Output, set_function};
+use crate::gpio::{Function, Level, Output, Pin as GpioPin, set_function};
 use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::{Peri, peripherals};
@@ -265,19 +266,132 @@ const BMCR_ANRESTART: u16 = 1 << 9;
 const BMSR_LINK: u16 = 1 << 2;
 const BMSR_ANCOMPLETE: u16 = 1 << 5;
 
+/// The pin traits, one per RMII signal: each is implemented for the pins the
+/// chip's pin multiplexing table offers for its signal, with the pin function
+/// that selects it.
+macro_rules! pin_traits {
+    ($($(#[$doc:meta])* $name:ident;)*) => {
+        $(
+            $(#[$doc])*
+            pub trait $name: GpioPin {
+                #[doc(hidden)]
+                fn function(&self) -> Function;
+            }
+        )*
+    };
+}
+
+pin_traits! {
+    /// A pin that can be `REF_CLK`, the PHY's 50 MHz reference clock (the
+    /// datasheet's `ETH_TX_CLK`, an input).
+    RefClkPin;
+    /// A pin that can be `MDC`, the management clock.
+    MdcPin;
+    /// A pin that can be `MDIO`, the management data.
+    MdioPin;
+    /// A pin that can be `CRS_DV`, carrier sense and receive data valid (the
+    /// datasheet's `ETH_RXDV`).
+    CrsDvPin;
+    /// A pin that can be `RX_ER`, the receive error.
+    RxErPin;
+    /// A pin that can be `RXD0`.
+    Rxd0Pin;
+    /// A pin that can be `RXD1`.
+    Rxd1Pin;
+    /// A pin that can be `TX_EN`, the transmit enable.
+    TxEnPin;
+    /// A pin that can be `TXD0`.
+    Txd0Pin;
+    /// A pin that can be `TXD1`.
+    Txd1Pin;
+}
+
+/// Each RMII signal's pins, by the signal's pin trait: pin, function.
+macro_rules! impl_rmii_pins {
+    ($($signal:ident: $($pin:ident $function:ident),*;)*) => {
+        $(
+            $(
+                impl $crate::eth::$signal for $crate::peripherals::$pin {
+                    fn function(&self) -> $crate::gpio::Function {
+                        $crate::gpio::Function::$function
+                    }
+                }
+            )*
+        )*
+    };
+}
+
+pub(crate) use impl_rmii_pins;
+
 /// The RMII pins: the PHY's reference clock, the management pair, receive
-/// and transmit.
-pub struct Pins<'d> {
-    pub ref_clk: Peri<'d, peripherals::PC00>,
-    pub mdc: Peri<'d, peripherals::PC03>,
-    pub mdio: Peri<'d, peripherals::PC04>,
-    pub crs_dv: Peri<'d, peripherals::PC10>,
-    pub rx_er: Peri<'d, peripherals::PC09>,
-    pub rxd0: Peri<'d, peripherals::PC07>,
-    pub rxd1: Peri<'d, peripherals::PC06>,
-    pub tx_en: Peri<'d, peripherals::PC11>,
-    pub txd0: Peri<'d, peripherals::PC12>,
-    pub txd1: Peri<'d, peripherals::PC13>,
+/// and transmit. Each field takes any pin the chip offers for its signal
+/// (its pin trait, from each chip's pin multiplexing table); the signals
+/// have no I/O sets, so any mix will do.
+///
+/// The management pair on PA11 and PA12, the rest where the chip has them:
+///
+/// ```no_run
+/// # use pic32c_hal::eth::Pins;
+/// let p = pic32c_hal::init(pic32c_hal::Config::default());
+/// let pins = Pins {
+///     ref_clk: p.PC00,
+///     mdc: p.PA11,
+///     mdio: p.PA12,
+///     crs_dv: p.PC10,
+///     rx_er: p.PC09,
+///     rxd0: p.PC07,
+///     rxd1: p.PC06,
+///     tx_en: p.PC11,
+///     txd0: p.PC12,
+///     txd1: p.PC13,
+/// };
+/// ```
+///
+/// MDC on PA12, which can only be MDIO, doesn't compile:
+///
+/// ```compile_fail
+/// # use pic32c_hal::eth::Pins;
+/// let p = pic32c_hal::init(pic32c_hal::Config::default());
+/// let pins = Pins {
+///     ref_clk: p.PC00,
+///     mdc: p.PA12,
+///     mdio: p.PC04,
+///     crs_dv: p.PC10,
+///     rx_er: p.PC09,
+///     rxd0: p.PC07,
+///     rxd1: p.PC06,
+///     tx_en: p.PC11,
+///     txd0: p.PC12,
+///     txd1: p.PC13,
+/// };
+/// ```
+pub struct Pins<'d, RefClk: RefClkPin, Mdc: MdcPin, Mdio: MdioPin, CrsDv: CrsDvPin, RxEr: RxErPin, Rxd0: Rxd0Pin, Rxd1: Rxd1Pin, TxEn: TxEnPin, Txd0: Txd0Pin, Txd1: Txd1Pin> {
+    pub ref_clk: Peri<'d, RefClk>,
+    pub mdc: Peri<'d, Mdc>,
+    pub mdio: Peri<'d, Mdio>,
+    pub crs_dv: Peri<'d, CrsDv>,
+    pub rx_er: Peri<'d, RxEr>,
+    pub rxd0: Peri<'d, Rxd0>,
+    pub rxd1: Peri<'d, Rxd1>,
+    pub tx_en: Peri<'d, TxEn>,
+    pub txd0: Peri<'d, Txd0>,
+    pub txd1: Peri<'d, Txd1>,
+}
+
+impl<RefClk: RefClkPin, Mdc: MdcPin, Mdio: MdioPin, CrsDv: CrsDvPin, RxEr: RxErPin, Rxd0: Rxd0Pin, Rxd1: Rxd1Pin, TxEn: TxEnPin, Txd0: Txd0Pin, Txd1: Txd1Pin> Pins<'_, RefClk, Mdc, Mdio, CrsDv, RxEr, Rxd0, Rxd1, TxEn, Txd0, Txd1> {
+    /// Gives each pin to the MAC, on the pin function its signal is on.
+    fn connect(&self) {
+        set_function(&*self.ref_clk, self.ref_clk.function());
+        set_function(&*self.mdc, self.mdc.function());
+        set_function(&*self.mdio, self.mdio.function());
+        set_function(&*self.crs_dv, self.crs_dv.function());
+        set_function(&*self.rx_er, self.rx_er.function());
+        set_function(&*self.rxd0, self.rxd0.function());
+        set_function(&*self.rxd1, self.rxd1.function());
+        set_function(&*self.tx_en, self.tx_en.function());
+        set_function(&*self.txd0, self.txd0.function());
+        set_function(&*self.txd1, self.txd1.function());
+    }
 }
 
 /// Why [`Ethernet::new`] failed.
@@ -468,8 +582,8 @@ impl<'d> Ethernet<'d> {
     pub async fn new<const TX: usize, const RX: usize>(
         eth: Peri<'d, peripherals::ETH>,
         _irqs: impl Binding<typelevel::ETH, InterruptHandler> + 'd,
-        pins: Pins<'d>,
-        phy_reset: Peri<'d, peripherals::PD21>,
+        pins: Pins<'d, impl RefClkPin, impl MdcPin, impl MdioPin, impl CrsDvPin, impl RxErPin, impl Rxd0Pin, impl Rxd1Pin, impl TxEnPin, impl Txd0Pin, impl Txd1Pin>,
+        phy_reset: Peri<'d, impl GpioPin>,
         queue: &'d mut PacketQueue<TX, RX>,
         mac: [u8; 6],
         generator: usize,
@@ -481,16 +595,7 @@ impl<'d> Ethernet<'d> {
         Timer::after(Duration::from_millis(10)).await;
         reset.set_high();
         Timer::after(Duration::from_millis(100)).await;
-        set_function(&*pins.ref_clk, Function::L);
-        set_function(&*pins.mdc, Function::L);
-        set_function(&*pins.mdio, Function::L);
-        set_function(&*pins.crs_dv, Function::L);
-        set_function(&*pins.rx_er, Function::L);
-        set_function(&*pins.rxd0, Function::L);
-        set_function(&*pins.rxd1, Function::L);
-        set_function(&*pins.tx_en, Function::L);
-        set_function(&*pins.txd0, Function::L);
-        set_function(&*pins.txd1, Function::L);
+        pins.connect();
 
         // GCLK_ETH_TX and GCLK_ETH_TSU: the MAC's enable doesn't
         // synchronise without them, even in RMII with REF_CLK from the PHY.

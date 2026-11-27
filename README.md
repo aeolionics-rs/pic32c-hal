@@ -35,7 +35,7 @@ The plan is to publish to crates.io once these have stabilized.
   with feature `pic32ck2051sg01144` or `pic32ck2051gc01144`, each on its
   own PAC; `rt` brings in the vector table. Host
   tests with `cargo test -p pic32c-hal --features
-  pic32ck2051sg01144,can-hal,time-driver,usb,usbhs`.
+  pic32ck2051sg01144,can-hal,eth,time-driver,usb,usbhs`.
   - `adc`: the 12-bit SAR ADC, one read at a time in the core's
     software-controlled mode (its channel and trigger registers are fixed
     while it's enabled), embassy-stm32's shape: `Adc::new_blocking` /
@@ -87,7 +87,9 @@ The plan is to publish to crates.io once these have stabilized.
     `xarxa-driver` driver (embassy-net's, on xarxa), RMII to the board's
     KSZ8091, with PHY discovery and link polling over MDIO; with
     embassy-net it gets DHCP and SLAAC addresses and answers ping, IPv4 and
-    IPv6.
+    IPv6. `Pins` takes any pin the chip offers for each RMII signal (a pin
+    trait per signal, generated as the SERCOM pads are; MDC and MDIO have
+    several), checked at compile time.
   - `exti` (feature `exti`): `ExtiInput`, waiting on a pin's levels and
     edges through the EIC (embedded-hal-async `Wait`), the pin's type naming
     its line (`p.EXTINT0` to `p.EXTINT15`); with `rt` the HAL owns the 16
@@ -111,7 +113,7 @@ The plan is to publish to crates.io once these have stabilized.
     the match).
   - `sercom`: what the SERCOM drivers share: `Pad<T, PAD, IOSET>`, each
     pin's pad, function and I/O set, generated from the ATDF by
-    `tools/pin_tables.py` (CAN's pins likewise). A driver takes all its
+    `tools/pin_tables.py` (CAN's pins and Ethernet's likewise). A driver takes all its
     pins in one I/O set, as the datasheet requires, and the compiler infers
     it and refuses a mix.
   - `spi`: a SERCOM as an SPI host (8-bit, modes 0-3, MSB or LSB first,
