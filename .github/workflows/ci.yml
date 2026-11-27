@@ -38,6 +38,13 @@ jobs:
         run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
       - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
+      # The TRNG as embassy-crypto's driver (its DRBG and health tests), in
+      # both of the constructions an application can choose.
+      - run: cargo clippy -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --all-targets -- -D warnings
+      - run: cargo test -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --lib
+      - run: cargo test -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --lib
+        env:
+          PIC32C_HAL_RNG: raw
       # The CM chips' own drivers (their DMAC, flash controllers, watchdog,
       # the GV00's clocks).
       - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
@@ -75,6 +82,13 @@ jobs:
           EMBASSY_REV: ${{ inputs.embassy-rev }}
         run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,${{ matrix.features }} -- -D warnings
+      # The PIC32CK's TRNG as embassy-crypto's driver, in both constructions.
+      - if: startsWith(matrix.chip, 'pic32ck')
+        run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,embassy-crypto-rng -- -D warnings
+      - if: startsWith(matrix.chip, 'pic32ck')
+        run: cargo clippy -p pic32c-hal --target ${{ matrix.target }} --features ${{ matrix.chip }},rt,unstable-pac,embassy-crypto-rng -- -D warnings
+        env:
+          PIC32C_HAL_RNG: raw
 
   # The board crates and their bench programs. The TLS programs build C and
   # assembly, so they need Arm's GCC.
@@ -95,6 +109,10 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} --examples -- -D warnings
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},tls --example eth_https --example crypto_bench -- -D warnings
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},crypto-rng --example crypto_rng -- -D warnings
+      - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},crypto-rng --example crypto_rng -- -D warnings
+        env:
+          PIC32C_HAL_RNG: raw
 
   pl10-board:
     runs-on: ubuntu-latest

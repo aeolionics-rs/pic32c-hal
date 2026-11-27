@@ -387,6 +387,8 @@ embassy_hal_internal::peripherals!(
     TCC7,
     RTC,
     ADC,
+    // `embassy-crypto-rng` makes the TRNG embassy-crypto's, and only its.
+    #[cfg(not(feature = "embassy-crypto-rng"))]
     TRNG,
     USB,
     USBHS,

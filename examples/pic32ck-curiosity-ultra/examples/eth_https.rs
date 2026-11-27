@@ -8,7 +8,9 @@
 //!
 //! - Certificate: `certs/cert.der`, a self-signed P-256 one for the bench
 //!   (both boards' mDNS names in its SAN), key `certs/key.der`. TEST ONLY.
-//! - Randomness: the TRNG, through getrandom's custom backend (rustls-
+//! - Randomness: the TRNG, as embassy-crypto's random number driver
+//!   (pic32c-hal's `embassy-crypto-rng`, health-checked, and by default an
+//!   `HMAC_DRBG` per call), through getrandom's custom backend (rustls-
 //!   rustcrypto draws its key shares and signature nonces from getrandom).
 //! - Time: `common/sntp.rs` (the DHCP gateway, then the pool);
 //!   clockless until the first sync, which this server never needs (no
@@ -32,12 +34,10 @@ extern crate alloc;
 use alloc::sync::Arc;
 use alloc::vec;
 use core::alloc::{GlobalAlloc, Layout};
-use core::cell::RefCell;
 use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use critical_section::Mutex;
 use pic32ck_curiosity_ultra::clocks;
 #[path = "common/mdns.rs"]
 #[allow(dead_code, reason = "shared by several examples; each uses some of it")]
@@ -60,7 +60,7 @@ use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_alloc::TlsfHeap;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
 use pic32c_hal::gpio::{Level, Output};
-use pic32c_hal::trng::{self, Trng};
+use pic32c_hal::trng;
 use pic32c_hal::{bind_interrupts, uid};
 use pic32ck_curiosity_ultra::uart::Uart;
 use picoserve::response::IntoResponse;
@@ -108,7 +108,6 @@ unsafe fn HardFault(frame: &cortex_m_rt::ExceptionFrame) -> ! {
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
-    TRNG => trng::InterruptHandler;
 });
 
 /// A handshake peaks at under 6 KB (measured), so this holds both
@@ -156,23 +155,18 @@ fn heap_peak() -> usize {
 static CERT: &[u8] = include_bytes!("../certs/cert.der");
 static KEY: &[u8] = include_bytes!("../certs/key.der");
 
-static RNG: Mutex<RefCell<Option<Trng<'static>>>> = Mutex::new(RefCell::new(None));
-
-/// getrandom's custom backend: the TRNG.
+/// getrandom's custom backend: embassy-crypto's random number driver, which
+/// pic32c-hal's `embassy-crypto-rng` serves from the TRNG.
 ///
 /// # Safety
 /// getrandom passes a writable buffer of `len` bytes.
 #[unsafe(no_mangle)]
+#[expect(clippy::unnecessary_wraps, reason = "getrandom's signature for a custom backend")]
 unsafe extern "Rust" fn __getrandom_v03_custom(dest: *mut u8, len: usize) -> Result<(), getrandom::Error> {
     // SAFETY: as getrandom promises.
     let buf = unsafe { core::slice::from_raw_parts_mut(dest, len) };
-    critical_section::with(|cs| match RNG.borrow_ref_mut(cs).as_mut() {
-        Some(rng) => {
-            rng.fill_blocking(buf);
-            Ok(())
-        }
-        None => Err(getrandom::Error::UNSUPPORTED),
-    })
+    embassy_crypto::rng_fill_bytes(buf);
+    Ok(())
 }
 
 /// The SNTP clock; `None` (clockless) before the first sync, which a
@@ -292,13 +286,11 @@ async fn main(spawner: Spawner) {
     let p = pic32ck_curiosity_ultra::init();
     let mut log = Uart::init(p.SERCOM5, p.PA24, p.PA25);
     let mut led = Output::new(p.PD20, Level::High);
-    let _ = writeln!(log, "\npic32ck-curiosity-ultra eth_https");
+    let _ = writeln!(log, "\npic32ck-curiosity-ultra eth_https (RNG {})", trng::CONSTRUCTION);
 
     static mut HEAP_MEMORY: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
     // SAFETY: once, before anything allocates; the memory is ours alone.
     unsafe { HEAP.init((&raw mut HEAP_MEMORY) as usize, HEAP_SIZE) };
-    let rng = Trng::new(p.TRNG, Irqs);
-    critical_section::with(|cs| RNG.borrow_ref_mut(cs).replace(rng));
 
     let start = Instant::now();
     let mut provider = tls::provider();
