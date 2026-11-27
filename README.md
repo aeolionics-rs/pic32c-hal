@@ -19,7 +19,9 @@ versions of:
 * can-common, support code shared with CAN drivers in our other HALs
 * embassy, at a revision of main, for embassy-net on its new xarxa stack
   ahead of a release (and embassy-usb-driver 0.3); embassy main needs Rust
-  1.100
+  1.100. A daily CI run (`embassy-main.yml`) builds everything against
+  embassy main's head and the xarxa its embassy-net names
+  (`tools/embassy-main.py`), and opens an issue when that breaks
 
 The plan is to publish to crates.io once these have stabilized.
 
