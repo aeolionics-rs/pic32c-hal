@@ -35,7 +35,7 @@ use panic_halt as _;
 use pic32c_hal::eth::{self, Ethernet, PacketQueue, Pins};
 use pic32c_hal::gpio::{Level, Output};
 use pic32c_hal::{bind_interrupts, uid};
-use static_cell::StaticCell;
+use static_cell::{ConstStaticCell, StaticCell};
 
 pic32ck_curiosity_ultra::boot!();
 
@@ -48,7 +48,7 @@ static ETHERNET: StaticCell<Ethernet<'static>> = StaticCell::new();
 static STACK: StaticCell<StackStorage<'static>> = StaticCell::new();
 /// The stack's packets: the MAC's receive ring holds eight, its transmit
 /// ring up to four, and the rest are the stack's.
-static POOL: StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }> = StaticPool::new();
+static POOL: ConstStaticCell<StaticPool<{ eth::BUFFER_SIZE }, 16, { eth::BUFFER_ALIGN }>> = ConstStaticCell::new(StaticPool::new());
 
 #[embassy_executor::task]
 async fn net(mut runner: Runner<'static>) -> ! {
@@ -93,7 +93,7 @@ async fn main(spawner: Spawner) {
     let _ = writeln!(log, "PHY at MDIO address {phy}, ID {phy_id:#010x}");
 
     let seed = u64::from_le_bytes([id[8], id[9], id[10], id[11], id[12], id[13], id[14], id[15]]);
-    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), &POOL, seed);
+    let (stack, runner) = Stack::new(STACK.init(StackStorage::new()), POOL.take(), seed);
     let iface = stack.add_iface_borrowed(ETHERNET.init(ethernet)).unwrap();
     iface.set_dhcpv4(Some(DhcpConfig::default())).unwrap();
     iface.set_slaac(Some(SlaacConfig::default())).unwrap();

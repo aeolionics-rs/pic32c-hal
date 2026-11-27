@@ -33,18 +33,18 @@ codegen-units = 1
 # a crates.io embassy-time-driver beside a git one is two crates with the
 # same `links`, which Cargo refuses.
 [patch.crates-io]
-embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
-embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "1c5f29e0256d1853daeb1de866d53489614d3a6f" }
+embassy-embedded-hal = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-hal-internal = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-net = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-net-driver-channel = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-time-driver = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-time-queue-utils = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-usb = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
+embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "ce40ea9c735565be8ddb78d52f7f8fc3177501ef" }
 
 # Ported to embassy-net on xarxa, in our forks: picoserve 0.21.0 (its
 # `embassy` glue on the new TcpSocket and TcpListener, sammhicks/picoserve#122)

@@ -35,7 +35,7 @@ use core::task::{Context, Waker};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use xarxa_driver::{Capabilities, HardwareAddress, LinkState, NotSupported, PacketBuf};
+use xarxa_driver::{Capabilities, DriverBuf, HardwareAddress, LinkState, NotSupported, RxWanted};
 
 use crate::gpio::{Function, Level, Output, set_function};
 use crate::interrupt::typelevel::{self, Binding, Handler};
@@ -166,8 +166,8 @@ impl Descriptor {
 pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_descriptors: [Descriptor; TX],
     rx_descriptors: [Descriptor; RX],
-    tx_buffers: [Option<PacketBuf>; TX],
-    rx_buffers: [Option<PacketBuf>; RX],
+    tx_buffers: [Option<DriverBuf>; TX],
+    rx_buffers: [Option<DriverBuf>; RX],
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
@@ -292,7 +292,7 @@ pub enum Error {
 /// buffer yet) holds it up.
 struct RxRing<'d> {
     descriptors: &'d mut [Descriptor],
-    buffers: &'d mut [Option<PacketBuf>],
+    buffers: &'d mut [Option<DriverBuf>],
     /// The next descriptor to receive from.
     next: usize,
     /// Where to start looking for an empty slot.
@@ -306,7 +306,7 @@ impl RxRing<'_> {
         if index == self.descriptors.len() - 1 { RX_WRAP } else { 0 }
     }
 
-    fn give(&mut self, mut buf: PacketBuf) {
+    fn give(&mut self, mut buf: DriverBuf) {
         // The buffer as the stack gives it: no headroom, empty, so the
         // frame starts at the storage's start.
         let data = buf.storage_mut().as_mut_ptr();
@@ -337,7 +337,7 @@ impl RxRing<'_> {
     /// The next whole received frame, giving back to the DMA any buffers
     /// that hold part of a frame (a frame larger than a buffer, which the
     /// MTU rules out, or the tail of one after an overrun).
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         loop {
             let index = self.next;
             self.buffers[index].as_ref()?;
@@ -365,7 +365,7 @@ impl RxRing<'_> {
 /// buffer, held until the DMA marks the descriptor used.
 struct TxRing<'d> {
     descriptors: &'d mut [Descriptor],
-    buffers: &'d mut [Option<PacketBuf>],
+    buffers: &'d mut [Option<DriverBuf>],
     /// The next descriptor to fill.
     next: usize,
     /// The oldest frame the DMA may still be sending.
@@ -413,7 +413,7 @@ impl TxRing<'_> {
         self.in_flight < self.descriptors.len()
     }
 
-    fn transmit(&mut self, buf: PacketBuf) {
+    fn transmit(&mut self, buf: DriverBuf) {
         let index = self.next;
         let length = buf.len().min(MTU);
         let descriptor = &mut self.descriptors[index];
@@ -697,15 +697,18 @@ impl xarxa_driver::Driver for Ethernet<'_> {
         Ok(())
     }
 
-    fn rx_wanted(&mut self) -> usize {
-        self.rx.empty
+    fn rx_wanted(&mut self) -> RxWanted {
+        RxWanted {
+            count: self.rx.empty,
+            starved: self.rx.empty == self.rx.descriptors.len(),
+        }
     }
 
-    fn rx_give(&mut self, buf: PacketBuf) {
+    fn rx_give(&mut self, buf: DriverBuf) {
         self.rx.give(buf);
     }
 
-    fn receive(&mut self) -> Option<PacketBuf> {
+    fn receive(&mut self) -> Option<DriverBuf> {
         self.tx.reclaim();
         if self.rx_burst >= RX_BUDGET {
             // Let the other tasks run; come straight back after them.
@@ -749,7 +752,7 @@ impl xarxa_driver::Driver for Ethernet<'_> {
         self.link.is_some() && self.tx.can_transmit()
     }
 
-    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+    fn transmit(&mut self, buf: DriverBuf) -> Result<(), DriverBuf> {
         if !self.can_transmit() {
             return Err(buf);
         }
