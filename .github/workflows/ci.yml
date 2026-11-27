@@ -37,7 +37,9 @@ jobs:
           EMBASSY_REV: ${{ inputs.embassy-rev }}
         run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
       - run: cargo clippy -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs --all-targets -- -D warnings
-      - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,time-driver,usb,usbhs
+      # With `eth` too, for its doc tests (the pins the compiler takes and
+      # refuses).
+      - run: cargo test -p pic32c-hal --features pic32ck2051sg01144,can-hal,eth,time-driver,usb,usbhs
       # The TRNG as embassy-crypto's driver (its DRBG and health tests), in
       # both of the constructions an application can choose.
       - run: cargo clippy -p pic32c-hal --features pic32ck2051gc01144,embassy-crypto-rng --all-targets -- -D warnings
