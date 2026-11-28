@@ -10,9 +10,22 @@ categories = ["embedded", "hardware-support", "no-std"]
 publish = false
 
 [features]
-# The chip, exactly one. build.rs turns it into cfgs naming its family
-# and peripheral IP versions.
+# The chip, exactly one: the device's name, its package in the last three
+# digits. build.rs turns it into cfgs naming its family, its peripheral IP
+# versions and, on the PIC32CK, its variant and package, and stops the
+# build if two are chosen.
+# The PIC32CK1025 and PIC32CK2051, SG01 and GC01, in 64, 100 and 144 pins.
+pic32ck1025sg01064 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck1025sg01100 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck1025sg01144 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck1025gc01064 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck1025gc01100 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck1025gc01144 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck2051sg01064 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck2051sg01100 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
 pic32ck2051sg01144 = ["dep:pic32ck-sg01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck2051gc01064 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
+pic32ck2051gc01100 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
 pic32ck2051gc01144 = ["dep:pic32ck-gc01-pac", "embassy-hal-internal/prio-bits-3"]
 pic32cm6408pl10048 = ["dep:pic32cm-pl10-pac", "embassy-hal-internal/prio-bits-2"]
 pic32cm5112sg00100 = ["dep:pic32cm-sg00-pac", "embassy-hal-internal/prio-bits-2"]

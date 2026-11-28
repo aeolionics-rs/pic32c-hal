@@ -550,7 +550,7 @@ dependencies = [
 [[package]]
 name = "edge-nal"
 version = "0.7.0"
-source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa-embassy-net#13bd563e494c19747e6507e27a75881fe4b49cbd"
+source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa#f7d788f0e7720b3ac888c50079aeac245523e295"
 dependencies = [
  "embassy-time",
  "embedded-io-async",
@@ -559,7 +559,7 @@ dependencies = [
 [[package]]
 name = "edge-nal-embassy"
 version = "0.9.0"
-source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa-embassy-net#13bd563e494c19747e6507e27a75881fe4b49cbd"
+source = "git+https://github.com/aeolionics-contrib/edge-net?branch=xarxa#f7d788f0e7720b3ac888c50079aeac245523e295"
 dependencies = [
  "edge-nal",
  "embassy-net",

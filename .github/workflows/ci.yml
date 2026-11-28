@@ -95,6 +95,26 @@ jobs:
         env:
           PIC32C_HAL_RNG: raw
 
+  # Every PIC32CK device builds: each package has its own pins file, and the
+  # drivers must name no pin a smaller package lacks.
+  devices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - if: inputs.embassy-rev
+        env:
+          EMBASSY_REV: ${{ inputs.embassy-rev }}
+        run: python3 -I tools/embassy-main.py "$EMBASSY_REV"
+      - run: |
+          for density in 1025 2051; do
+            for variant in sg gc; do
+              for package in 064 100 144; do
+                cargo check -p pic32c-hal --target thumbv8m.main-none-eabihf --features "pic32ck${density}${variant}01${package},rt,unstable-pac,can-hal,eth,exti,time-driver,usb,usbhs"
+              done
+            done
+          done
+
   # The board crates and their bench programs. The TLS programs build C and
   # assembly, so they need Arm's GCC.
   board:
