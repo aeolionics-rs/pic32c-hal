@@ -534,9 +534,9 @@ dependencies = [
 
 [[package]]
 name = "edge-mdns"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4c32f19b7b4fb455e0bc270bcfe8ca595813ea935a2606447a32fe99b0b1843"
+checksum = "ecb039f13789309d485dced905585dfbd8b902b5d0e46da819cfb69aba7595f4"
 dependencies = [
  "domain",
  "edge-nal",

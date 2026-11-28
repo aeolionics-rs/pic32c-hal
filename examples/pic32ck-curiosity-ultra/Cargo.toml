@@ -287,7 +287,7 @@ embedded-io-async = "0.7"
 embedded-io = "0.7"
 sntpc = { version = "0.11.0", default-features = false }
 # mDNS (the `mdns` module).
-edge-mdns = { version = "0.8.0", default-features = false, features = ["io"] }
+edge-mdns = { version = "0.9.0", default-features = false, features = ["io"] }
 edge-nal = "0.7.0"
 edge-nal-embassy = { version = "0.9.0", default-features = false, features = ["medium-ethernet", "multicast", "proto-ipv4", "proto-ipv6", "udp"] }
 rand-core-010 = { package = "rand_core", version = "0.10.1", default-features = false }
