@@ -14,8 +14,9 @@
 //! (Microchip.PIC32CK-GC_DFP.1.5.239.atpack, corrected against the datasheet),
 //! which give the same.
 //!
-//! The corrections that reach these devices: jtag-swd-mux-tck-swclk,
-//! jtag-swd-mux-tdi, jtag-swd-mux-tdo, jtag-swd-mux-tms-swdio, supc-out0,
+//! The corrections that reach these devices: exposed-pad-p144,
+//! jtag-swd-mux-tck-swclk, jtag-swd-mux-tdi, jtag-swd-mux-tdo,
+//! jtag-swd-mux-tms-swdio, ordercode-tqfp144-e, ordercode-tqfp144-i, supc-out0,
 //! supc-out1, supply-names-gnd, supply-names-vdda, supply-names-vddreg-usb-144,
 //! supply-names-vssa, supply-names-vssio, supply-names-vusb3v3,
 //! swd-pins-only-pa02-no-eic-extint2, swd-pins-only-pa02-no-sercom6-pad2,

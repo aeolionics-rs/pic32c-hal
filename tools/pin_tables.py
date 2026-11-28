@@ -114,10 +114,16 @@ def tables(root, pads):
 def package(path):
     """The pins file's lines after its heading, and the package's size."""
     root = ET.parse(path).getroot()
-    pinouts = [sorted(pin.get('pad') for pin in pinout.iter('pin')) for pinout in root.iter('pinout')]
+    # A device's pinouts (a TQFP and a BGA, say) must carry the same pads.
+    # How many pins a pad is on may differ: a supply's, or an exposed pad.
+    pinouts = [{pin.get('pad') for pin in pinout.iter('pin')} for pinout in root.iter('pinout')]
     if not pinouts or any(pinout != pinouts[0] for pinout in pinouts):
         sys.exit(f'{path}: its pinouts do not carry the same pads; make a file from one ATDF per package')
-    pads = set(pinouts[0])
+    pads = pinouts[0]
+    # The package's size is in its name (TQFP64): a pinout may list an
+    # exposed pad as one pin more.
+    sizes = [re.search(r'(\d+)$', variant.get('package', '')) for variant in root.iter('variant')]
+    leads = int(sizes[0].group(1)) if sizes and sizes[0] else max(len(list(pinout.iter('pin'))) for pinout in root.iter('pinout'))
     gpio = sorted(pad for pad in pads if PORT_PAD.fullmatch(pad))
     pin_tables, lines, nmi, analog = tables(root, pads)
     out = [
@@ -150,7 +156,7 @@ def package(path):
         '#[cfg(feature = "exti")]',
         f'crate::exti::impl_nmi_pins!({", ".join(sorted(nmi))});',
     ]
-    return out, len(pinouts[0]), len(gpio)
+    return out, leads, len(gpio)
 
 
 def wrap(text, width=76):
