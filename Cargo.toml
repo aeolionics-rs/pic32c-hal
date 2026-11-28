@@ -50,7 +50,7 @@ embassy-usb-driver = { git = "https://github.com/embassy-rs/embassy", rev = "ce4
 # and edge-nal-embassy (UDP and DNS; TCP not yet). `.cargo/local.toml` can
 # point these at checkouts beside this repository.
 picoserve = { git = "https://github.com/aeolionics-contrib/picoserve", branch = "xarxa-0.21" }
-edge-nal-embassy = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }
+edge-nal-embassy = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa" }
 # edge-nal-embassy takes the fork's edge-nal; this keeps edge-mdns on the same
 # one.
-edge-nal = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa-embassy-net" }
+edge-nal = { git = "https://github.com/aeolionics-contrib/edge-net", branch = "xarxa" }
