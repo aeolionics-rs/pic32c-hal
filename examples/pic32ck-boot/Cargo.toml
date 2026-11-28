@@ -1,0 +1,28 @@
+[package]
+name = "pic32ck-boot"
+description = "pic32c-boot's reference bootloader for the PIC32CK Curiosity Ultra (spike): in boot flash, it checks the images in the two program flash panels, decides from the boot log which to run, swaps the panels and jumps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "pic32ck-boot"
+test = false
+bench = false
+
+[features]
+# The board, exactly one.
+sg01 = ["pic32c-hal/pic32ck2051sg01144"]
+gc01 = ["pic32c-hal/pic32ck2051gc01144"]
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
+panic-halt = "1.0.0"
+pic32c-hal = { path = "../../pic32c-hal" }
+pic32c-boot = { path = "../../pic32c-boot" }
+
+[lints]
+workspace = true

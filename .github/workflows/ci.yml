@@ -52,6 +52,9 @@ jobs:
       - run: cargo test -p pic32c-hal --features pic32cm5112sg00100 --lib
       - run: cargo test -p pic32c-hal --features pic32cm6408pl10048 --lib
       - run: cargo test -p pic32c-hal --features pic32cm3204gv00064 --lib
+      # The bootloader's decision (pic32c-boot), a pure function.
+      - run: cargo clippy -p pic32c-boot --all-targets -- -D warnings
+      - run: cargo test -p pic32c-boot
 
   # The HAL for each chip, every feature that chip has.
   chip:
@@ -135,6 +138,8 @@ jobs:
       - run: cargo clippy --release -p pic32ck-curiosity-ultra --target thumbv8m.main-none-eabihf --features ${{ matrix.board }},crypto-rng --example crypto_rng -- -D warnings
         env:
           PIC32C_HAL_RNG: raw
+      # pic32c-boot's reference bootloader for the board.
+      - run: cargo clippy --release -p pic32ck-boot --target thumbv8m.main-none-eabihf --features ${{ matrix.board }} -- -D warnings
 
   pl10-board:
     runs-on: ubuntu-latest

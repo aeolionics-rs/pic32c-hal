@@ -1,0 +1,21 @@
+[package]
+name = "pic32c-boot"
+description = "A bootloader for Microchip's PIC32C: which flash panel's image to run, decided by a pure function from what each panel holds"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords = ["pic32ck", "microchip", "bootloader", "no-std"]
+categories = ["embedded", "no-std"]
+publish = false
+
+[dependencies]
+# The flash the log's pages are on (pic32c-hal's `flash::Flash` implements it).
+embedded-storage = "0.3.2"
+# The same, async (AsyncNorPages): pic32c-hal's `flash::Flash<Async>`.
+embedded-storage-async = "0.4.2"
+# Checking an image is whole (image.rs).
+sha2 = { version = "0.11.1", default-features = false }
+
+[lints]
+workspace = true
