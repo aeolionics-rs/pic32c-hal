@@ -32,8 +32,14 @@ The plan is to publish to crates.io once these have stabilized.
   every UART type implement `embassy-embedded-hal`'s `SetConfig`, for its
   shared-bus devices (`spi` and `i2c` change rate and mode with it on the
   GC01). Choose the chip
-  with feature `pic32ck2051sg01144` or `pic32ck2051gc01144`, each on its
-  own PAC; `rt` brings in the vector table. Host
+  with its device's feature: a PIC32CK as `pic32ck2051sg01144`, for the
+  PIC32CK1025 or PIC32CK2051, SG01 or GC01 (each on its own PAC), in 64,
+  100 or 144 pins. The package decides the pins and pin tables the HAL
+  has: each is a pins file (`src/chip/pic32ck_pins_*.rs`) that
+  `tools/pin_tables.py --pins-file` writes from the devices' pin
+  multiplexing, beside the chip file kept by hand. Only the 144-pin
+  PIC32CK2051 has run on a board; the others build. `rt` brings in the
+  vector table. Host
   tests with `cargo test -p pic32c-hal --features
   pic32ck2051sg01144,can-hal,eth,time-driver,usb,usbhs`.
   - `adc`: the 12-bit SAR ADC, one read at a time in the core's

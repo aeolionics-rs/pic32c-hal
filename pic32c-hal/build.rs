@@ -7,11 +7,15 @@
 //! (`sercom_v6`, `port_v1`, ...), not on the chip, so a new chip with the
 //! same IP gets the same code.
 //!
-//! - `pic32ck`: the PIC32CK SG/GC (Cortex-M33). `sercom_v6` (FIFO, 32-bit
+//! - `pic32ck`: the PIC32CK SG/GC (Cortex-M33), with `pic32ck_sg` or
+//!   `pic32ck_gc` for the variant (the SG has `TrustZone` and the HSM, so
+//!   its own PAC and Secure views), `pic32ck_1025` or `pic32ck_2051` for
+//!   the flash, and `pins_064`, `pins_100` or `pins_144` for the package,
+//!   which picks the chip's pins file. `sercom_v6` (FIFO, 32-bit
 //!   DATA, four interrupt lines per SERCOM), `port_v4` (open drain, 2-bit
 //!   slew), `dma_axi` (its own DMA IP), `adc_msh`, `rtc_v3`, `wdt_v2`,
 //!   `eic_v1`, `cmcc`, `fcw` and `fcw_v1` (FCW 03433), `trng`, `mcan`,
-//!   `gmac`, `usb_fs`, `usb_hs` (a MUSB core).
+//!   `gmac`, `usb_fs`, `usb_hs` (a MUSB core; not in the 64-pin package).
 //! - `pic32cm_pl`: the PIC32CM PL10 (Cortex-M0+). `sercom_v1` (no FIFO,
 //!   16-bit DATA, one interrupt line per SERCOM, bus clocks off at reset),
 //!   `port_v1` (no open drain, 1-bit slew), `dma_u2223` (the SG00's DMAC,
@@ -54,6 +58,13 @@ use std::env;
 
 const ALL: &[&str] = &[
     "pic32ck",
+    "pic32ck_sg",
+    "pic32ck_gc",
+    "pic32ck_1025",
+    "pic32ck_2051",
+    "pins_064",
+    "pins_100",
+    "pins_144",
     "pic32cm_pl",
     "pic32cm_sg",
     "pic32cm_gv",
@@ -132,18 +143,35 @@ fn main() {
     let timers: Vec<String> = PIC32CK_TIMERS.iter().chain(PIC32CM_PL_TIMERS).map(|t| format!("\"{t}\"")).collect();
     println!("cargo::rustc-check-cfg=cfg(time_driver, values({}))", timers.join(", "));
     let feature = |name: &str| env::var_os(format!("CARGO_FEATURE_{}", name.to_uppercase().replace('-', "_"))).is_some();
-    let (cfgs, timers): (&[&str], &[&str]) = if feature("pic32ck2051sg01144") || feature("pic32ck2051gc01144") {
-        (PIC32CK, PIC32CK_TIMERS)
-    } else if feature("pic32cm6408pl10048") {
-        (PIC32CM_PL, PIC32CM_PL_TIMERS)
-    } else if feature("pic32cm5112sg00100") {
-        (PIC32CM_SG, PIC32CM_SG_TIMERS)
-    } else if feature("pic32cm3204gv00064") {
-        (PIC32CM_GV, PIC32CM_GV_TIMERS)
-    } else {
-        (&[], &[])
-    };
-    for cfg in cfgs {
+
+    // The chip features that are on, each with its cfgs and its counters.
+    let mut chosen: Vec<(String, Vec<String>, &[&str])> = Vec::new();
+    for density in ["1025", "2051"] {
+        for variant in ["sg", "gc"] {
+            for package in ["064", "100", "144"] {
+                let name = format!("pic32ck{density}{variant}01{package}");
+                if feature(&name) {
+                    // The 64-pin package has no pins for the high-speed USB.
+                    let mut cfgs: Vec<String> = PIC32CK.iter().filter(|cfg| package != "064" || **cfg != "usb_hs").map(ToString::to_string).collect();
+                    cfgs.extend([format!("pic32ck_{variant}"), format!("pic32ck_{density}"), format!("pins_{package}")]);
+                    chosen.push((name, cfgs, PIC32CK_TIMERS));
+                }
+            }
+        }
+    }
+    for (name, cfgs, timers) in [
+        ("pic32cm6408pl10048", PIC32CM_PL, PIC32CM_PL_TIMERS),
+        ("pic32cm5112sg00100", PIC32CM_SG, PIC32CM_SG_TIMERS),
+        ("pic32cm3204gv00064", PIC32CM_GV, PIC32CM_GV_TIMERS),
+    ] {
+        if feature(name) {
+            chosen.push((name.to_string(), cfgs.iter().map(ToString::to_string).collect(), timers));
+        }
+    }
+    assert!(chosen.len() <= 1, "choose one chip: features {} are all on", chosen.iter().map(|(name, ..)| format!("`{name}`")).collect::<Vec<_>>().join(", "));
+    // With none, lib.rs says so.
+    let (cfgs, timers): (Vec<String>, &[&str]) = chosen.pop().map_or((Vec::new(), &[]), |(_, cfgs, timers)| (cfgs, timers));
+    for cfg in &cfgs {
         println!("cargo::rustc-cfg={cfg}");
     }
     let named: Vec<&str> = PIC32CK_TIMERS.iter().chain(PIC32CM_PL_TIMERS).copied().filter(|t| feature(&format!("time-driver-{t}"))).collect();
@@ -156,7 +184,7 @@ fn main() {
     if let Some(timer) = timer {
         println!("cargo::rustc-cfg=time_driver=\"{timer}\"");
     }
-    rng(cfgs, feature("embassy-crypto-rng"));
+    rng(&cfgs.iter().map(String::as_str).collect::<Vec<_>>(), feature("embassy-crypto-rng"));
 }
 
 /// What `embassy-crypto-rng` hands out, chosen by the application through `PIC32C_HAL_RNG`: an

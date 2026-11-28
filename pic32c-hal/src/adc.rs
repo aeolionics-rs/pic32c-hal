@@ -73,7 +73,6 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::Function;
 use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::{self, Binding, Handler};
 use crate::mode::{Async, Blocking};
@@ -338,24 +337,27 @@ impl SealedAdcChannel for Temperature {
 #[cfg(pic32ck)]
 impl AdcChannel for Temperature {}
 
+/// Each analog input's pin and its number, on function B.
 macro_rules! impl_adc_pin {
     ($($pin:ident = $channel:literal),* $(,)?) => {$(
-        impl SealedAdcChannel for Peri<'_, peripherals::$pin> {
+        impl $crate::adc::SealedAdcChannel for $crate::Peri<'_, $crate::peripherals::$pin> {
             fn setup(&mut self) {
-                crate::gpio::set_function(&**self, Function::B);
+                $crate::gpio::set_function(&**self, $crate::gpio::Function::B);
             }
             fn channel(&self) -> u8 {
                 $channel
             }
         }
-        impl AdcChannel for Peri<'_, peripherals::$pin> {}
+        impl $crate::adc::AdcChannel for $crate::Peri<'_, $crate::peripherals::$pin> {}
     )*};
 }
 
-// VINP0-11 (the ATDF's ADC signals, function B), the same on the SG01 and
-// GC01.
+// Used by the PIC32CK's pins files; the SG00's inputs are below.
 #[cfg(pic32ck)]
-impl_adc_pin!(PA04 = 0, PA05 = 1, PA06 = 2, PA07 = 3, PA08 = 4, PA09 = 5, PA10 = 6, PA11 = 7, PA12 = 8, PB00 = 9, PB11 = 10, PB12 = 11,);
+pub(crate) use impl_adc_pin;
+
+// The PIC32CK's VINP0-11 are in its package's pins file: a smaller package
+// lacks some of the pins.
 // AIN0-11 on the SG00 (likewise, function B).
 #[cfg(pic32cm_sg)]
 impl_adc_pin!(PA03 = 0, PA04 = 1, PA05 = 2, PA06 = 3, PA07 = 4, PA08 = 5, PA09 = 6, PB00 = 7, PB03 = 8, PB04 = 9, PB05 = 10, PB06 = 11,);
